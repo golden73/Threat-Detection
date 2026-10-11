@@ -31,8 +31,8 @@ MIN_FLOWS = 5                         # drop tiny bursts (likely false positives
 BRUTE = {"technique_id": "T1110.001", "technique": "Brute Force: Password Guessing",
          "tactic": "Credential Access", "severity": "high"}
 MITRE = {
-    "PortScan": {"technique_id": "T1046", "technique": "Network Service Discovery",
-                 "tactic": "Discovery", "severity": "medium"},
+    "PortScan": {"technique_id": "T1595", "technique": "Active Scanning",
+                 "tactic": "Reconnaissance", "severity": "medium"},
     "DDoS": {"technique_id": "T1498", "technique": "Network Denial of Service",
              "tactic": "Impact", "severity": "high"},
     "FTP-Patator": BRUTE,

@@ -51,12 +51,12 @@
       "ALR-0005"
     ],
     "tactics": [
-      "Discovery",
+      "Reconnaissance",
       "Impact"
     ],
     "techniques": [
-      "T1046",
-      "T1046",
+      "T1595",
+      "T1595",
       "T1498"
     ],
     "total_flows": 86033,
@@ -64,7 +64,7 @@
       "192.168.10.50"
     ],
     "severity": "critical",
-    "summary": "172.16.0.1: PortScan (T1046) -> PortScan (T1046) -> DDoS (T1498)",
+    "summary": "172.16.0.1: PortScan (T1595) -> DDoS (T1498)",
     "incident_id": "INC-003"
   }
 ]

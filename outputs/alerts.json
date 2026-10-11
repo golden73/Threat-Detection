@@ -42,9 +42,9 @@
     "target_ports": 5,
     "top_target": "192.168.10.50",
     "avg_confidence": 0.9997,
-    "technique_id": "T1046",
-    "technique": "Network Service Discovery",
-    "tactic": "Discovery",
+    "technique_id": "T1595",
+    "technique": "Active Scanning",
+    "tactic": "Reconnaissance",
     "severity": "medium"
   },
   {
@@ -58,9 +58,9 @@
     "target_ports": 999,
     "top_target": "192.168.10.50",
     "avg_confidence": 1.0,
-    "technique_id": "T1046",
-    "technique": "Network Service Discovery",
-    "tactic": "Discovery",
+    "technique_id": "T1595",
+    "technique": "Active Scanning",
+    "tactic": "Reconnaissance",
     "severity": "medium"
   },
   {

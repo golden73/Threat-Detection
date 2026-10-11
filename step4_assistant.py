@@ -26,17 +26,21 @@ SEV_ORDER = ["low", "medium", "high", "critical"]
 
 # ---- ATT&CK knowledge base (what the assistant is grounded on) -------------
 KB = {
-    "T1046": {
-        "name": "Network Service Discovery", "tactic": "Discovery",
-        "meaning": "The source probed many ports/services to learn what is running on the target. "
-                   "This is usually reconnaissance that comes before an exploit or attack.",
+    "T1595": {
+        "name": "Active Scanning", "tactic": "Reconnaissance",
+        "meaning": "The source actively probed the target network from outside to discover "
+                   "open ports and running services before attempting any further attack. "
+                   "This is pre-compromise reconnaissance: the scanner is preparing to find "
+                   "and hit an exposed service.",
         "immediate": ["Block or rate-limit the scanning source at the firewall.",
-                      "Check which ports and services the scan touched and whether any should not be exposed."],
+                      "Check which ports and services responded, and whether any should not be exposed.",
+                      "Expect a follow-up attack and watch for brute force, exploit, or flood traffic."],
         "longer_term": ["Close unused ports and disable unneeded services.",
                         "Segment the network so one exposed host does not reveal everything.",
-                        "Enable port-scan detection on the firewall/IDS (e.g. Suricata, Snort)."],
-        "mitigations": ["M1031 Network Intrusion Prevention", "M1030 Network Segmentation",
-                        "M1042 Disable or Remove Feature or Program"],
+                        "Enable port-scan detection on the firewall/IDS (e.g. Suricata, Snort) and alert on scans.",
+                        "Document your external exposure so you know what is reachable from the internet."],
+        "mitigations": ["M1056 Pre-compromise", "M1031 Network Intrusion Prevention",
+                        "M1030 Network Segmentation", "M1042 Disable or Remove Feature or Program"],
     },
     "T1498": {
         "name": "Network Denial of Service", "tactic": "Impact",
