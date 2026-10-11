@@ -30,8 +30,11 @@ analyst reports, and a standalone demo page — all offline-capable.
 ├── step4_assistant.py       # AI SOC assistant (LLM or offline KB)
 ├── step5_hard_eval.py       # Chronological / LOAO / cross-capture eval
 ├── step6_demo_page.py       # Build demo.html
-├── slides.md                # Presentation slides (11 slides)
-├── slides.pdf               # Exported PDF
+├── slides.md                # Presentation slides (12 slides)
+├── slides.pptx              # PowerPoint deck (editable, 16:9)
+├── slides.pdf               # Exported PDF (WeasyPrint)
+├── build_slides.py          # slides.md -> slides.pdf
+├── build_pptx.py            # slides.md -> slides.pptx
 ├── demo_script.txt          # 3-minute demo script
 └── requirements.txt         # Python dependencies
 ```

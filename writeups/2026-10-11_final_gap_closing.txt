@@ -87,3 +87,19 @@ attack types?" -> answers are in writeups/2026-10-11_qa_answers.txt
 (Kilo). Hard-eval honesty story (LOAO 0.04%-45%, cross-capture ~0%) is
 the expected follow-up discussion point.
 ========================================================================
+
+------------------------------------------------------------------------
+7. POWERPOINT DECK ADDED (editable .pptx)
+------------------------------------------------------------------------
+- build_pptx.py added: parses slides.md -> slides.pptx (python-pptx).
+- slides.pptx: 12 slides, 16:9, native editable tables, title bands,
+  monospace pipeline diagram. Content mirrors slides.md exactly
+  (3-fold OOF numbers + honesty check).
+- Rebuild with:  venv/bin/python build_pptx.py slides.md slides.pptx
+- python-pptx==0.6.18 added to requirements.txt (build-time only; the
+  step1-6 runtime pipeline does not import it).
+- Note: no LibreOffice in this environment, so an image/PDF render of the
+  pptx could not be produced here. slides.pdf (WeasyPrint) remains the
+  PDF deliverable; slides.pptx is the editable deck. Verify the pptx in
+  PowerPoint/LibreOffice/Keynote before the presentation.
+========================================================================

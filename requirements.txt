@@ -9,5 +9,6 @@ xgboost==3.4.1
 anthropic==1.13.0
 markdown==3.10.3
 weasyprint==69.0
+python-pptx==0.6.18
 joblib==1.5.3
 threadpoolctl==3.7.0
