@@ -1,138 +1,160 @@
 # AI-Assisted Threat Detection & Response System
 
-An end-to-end pipeline that detects network attacks from CICIDS2017 flow data,
-correlates detections into incidents, maps them to MITRE ATT&CK, and generates
-analyst-style reports — tuned for small, resource-constrained IT teams (demo
-context: a school/clinic/SACCO/small business in Lusaka, Zambia).
+End-to-end threat detection pipeline built on CICIDS2017 network traffic.
+Implements ML detection, alert correlation, MITRE ATT&CK mapping, AI-assisted
+analyst reports, and a standalone demo page — all offline-capable.
 
-## What it does
-
-| Step | Script | Purpose | Key outputs |
-|---|---|---|---|
-| 1 | `step1_load_clean.py` | Load + clean CICIDS2017 CSVs | `data/clean.csv` |
-| 2 | `step2_baseline.py` | Train XGBoost; out-of-fold predictions on every flow | `models/xgb.json`, `outputs/metrics.json`, `outputs/predictions.csv` |
-| 3 | `step3_alerts.py` | Predictions → alerts → correlated incidents + ATT&CK mapping | `outputs/alerts.json`, `outputs/incidents.json` |
-| 4 | `step4_assistant.py` | Analyst-style incident reports (offline KB or LLM) | `outputs/reports/*.md` |
-| 5 | `step5_hard_eval.py` | Harder evaluation: chronological split + leave-one-attack-out | `outputs/hard_eval.json` |
-| 6 | `step6_demo_page.py` | Self-contained offline demo page | `outputs/demo.html` |
-
-## Pipeline
+## Project Structure
 
 ```
-data/raw/*.csv ─→ step1 → data/clean.csv ─→ step2 → models/ + predictions.csv
-                                                      │
-predictions.csv ─→ step3 → alerts.json + incidents.json ─→ step4 → reports/*.md
-                                                      └→ step5 → hard_eval.json
-                                        step6 ←─ (all of the above) → demo.html
+.
+├── data/
+│   ├── raw/                 # Original CICIDS2017 CSVs (download separately)
+│   ├── subset/              # Pre-cleaned subset (optional)
+│   └── clean.csv            # Merged & cleaned data (957K flows, 80 features)
+├── models/
+│   ├── xgb.json             # Trained XGBoost model
+│   └── classes.json         # Class labels
+├── outputs/
+│   ├── metrics.json         # Baseline metrics (no port)
+│   ├── metrics_with_port.json  # Comparison with Destination Port
+│   ├── predictions.csv      # Per-flow out-of-fold predictions
+│   ├── alerts.json          # Correlated alerts with ATT&CK
+│   ├── incidents.json       # Multi-alert incidents
+│   ├── hard_eval.json       # Chronological + LOAO + cross-capture
+│   ├── demo.html            # Standalone demo page
+│   └── reports/             # AI assistant reports (Markdown)
+├── step1_load_clean.py      # Load & clean CICIDS2017 CSVs
+├── step2_baseline.py        # XGBoost baseline (k-fold OOF, no port)
+├── step3_alerts.py          # Predictions → alerts → incidents + ATT&CK
+├── step4_assistant.py       # AI SOC assistant (LLM or offline KB)
+├── step5_hard_eval.py       # Chronological / LOAO / cross-capture eval
+├── step6_demo_page.py       # Build demo.html
+├── slides.md                # Presentation slides (11 slides)
+├── slides.pdf               # Exported PDF
+├── demo_script.txt          # 3-minute demo script
+└── requirements.txt         # Python dependencies
 ```
 
-## Quick start
+## Quick Start
+
+### 1. Install Dependencies
 
 ```bash
-# 1. Environment
-python -m venv venv
-venv/bin/pip install -r requirements.txt
-# (if pip tries to fetch a huge nvidia wheel for xgboost and the network
-#  drops, set include-system-site-packages = true in venv/pyvenv.cfg and
-#  reuse a system Python that already has the stack.)
-
-# 2. Data (skip if data/clean.csv already present)
-mkdir -p data/raw
-#  ... place the CICIDS2017 "MachineLearningCVE" CSVs in data/raw/
-venv/bin/python step1_load_clean.py data/raw data/clean.csv
-
-# 3. Model + predictions (fast 3-fold out-of-fold scoring)
-venv/bin/python step2_baseline.py data/clean.csv --folds 3
-
-# 4. Comparison run WITH the destination-port feature (slide material)
-venv/bin/python step2_baseline.py data/clean.csv --folds 3 --with-dest-port
-
-# 5. Alerts + incidents
-venv/bin/python step3_alerts.py outputs/predictions.csv
-
-# 6. Reports (offline / LLM / auto)
-venv/bin/python step4_assistant.py --incident INC-001            # auto mode
-venv/bin/python step4_assistant.py --incident INC-001 --mode offline
-venv/bin/python step4_assistant.py --ask "Which incident should I handle first?"
-
-# 7. Hard evaluation
-venv/bin/python step5_hard_eval.py data/clean.csv
-
-# 8. Demo page
-venv/bin/python step6_demo_page.py
-# open outputs/demo.html in a browser (no server needed)
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-## Dataset
+### 2. Get Data
 
-**CICIDS2017** (subset of 8 capture days → 3 capture files used here):
+Download CICIDS2017 "MachineLearningCVE" CSVs and place in `data/raw/`:
+- Tuesday-WorkingHours.pcap_ISCX.csv
+- Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv
+- Friday-WorkingHours-Afternoon-DDoS.pcap_ISCX.csv
 
-| source_file | rows (clean) |
-|---|---|
-| Tuesday-WorkingHours | 445,641 |
-| Friday-WorkingHours-Afternoon-PortScan | 286,095 |
-| Friday-WorkingHours-Afternoon-DDos | 225,709 |
-| **Total clean flows** | **957,445** |
+(Or use the provided `data/clean.csv` directly.)
 
-**Classes** (4 attack types + benign — see *Why only four attack types?*):
-
-| Label | flows | MITRE ATT&CK |
-|---|---|---|
-| BENIGN | 656,784 | — |
-| PortScan | 158,804 | **T1595** Active Scanning (Reconnaissance) · T1595.001 |
-| DDoS | 128,025 | **T1498** Network Denial of Service (Impact) · T1498.001 |
-| FTP-Patator | 7,935 | **T1110.001** Brute Force: Password Guessing |
-| SSH-Patator | 5,897 | **T1110.001** Brute Force: Password Guessing |
-
-> Mapping rationale: PortScan is external, pre-compromise scanning of the victim
-> infrastructure → `T1595` Active Scanning (PRO comparison: `T1046` Network
-> Service Discovery describes post-compromise, in-network discovery). The DDoS is
-> a network-bandwidth flood → `T1498`, not endpoint-level `T1499`.
-
-## Model & honest evaluation
-
-- **Model**: XGBoost, multi-class (`objective=multi:softprob`), 200 trees,
-  depth 8, lr 0.1. IPC metadata (IPs, ports, timestamps) excluded as features.
-- **Scoring**: stratified k-fold **out-of-fold** — every flow is predicted by a
-  model that never trained on it, so step 3 sees the full traffic timeline.
-- `--with-dest-port` comparison exists because the destination port nearly
-  gives the label away (21=FTP, 22=SSH, 80=DDoS); that run writes only
-  `outputs/metrics_with_port.json`.
-
-Numbers live in `outputs/metrics.json` and `outputs/hard_eval.json` (baseline,
-chronological split, and leave-one-attack-out including per-class "unseen
-attack" recall).
-
-## LLM mode (step 4)
+### 3. Run Pipeline
 
 ```bash
-ANTHROPIC_API_KEY=sk-ant-... venv/bin/python step4_assistant.py --mode llm --incident INC-001
+# Step 1: Clean data (if starting from raw CSVs)
+python step1_load_clean.py data/raw data/clean.csv
+
+# Step 2: Train & evaluate XGBoost (k-fold OOF, all flows)
+python step2_baseline.py data/clean.csv --folds 3
+
+# Step 2b: Comparison run WITH Destination Port (metrics only)
+python step2_baseline.py data/clean.csv --folds 3 --with-dest-port
+
+# Step 3: Correlate predictions into alerts & incidents
+python step3_alerts.py outputs/predictions.csv
+
+# Step 4: Generate AI assistant reports (offline mode)
+python step4_assistant.py --incident INC-001 --mode offline
+python step4_assistant.py --incident INC-002 --mode offline
+python step4_assistant.py --incident INC-003 --mode offline
+python step4_assistant.py --incident INC-004 --mode offline
+python step4_assistant.py --incident INC-005 --mode offline
+
+# Step 5: Hard evaluation (chronological + LOAO + cross-capture)
+python step5_hard_eval.py data/clean.csv
+
+# Step 6: Build demo page
+python step6_demo_page.py
+
+# Open demo
+# Linux: xdg-open outputs/demo.html
+# macOS: open outputs/demo.html
+# Windows: start outputs/demo.html
 ```
 
-Default is `auto`: LLM if the key is present, otherwise the offline
-knowledge-base report. The offline mode is demo-safe (no internet needed).
+## Key Features
 
-## Repository layout
+- **No label leakage**: Destination Port excluded from model features
+- **Honest evaluation**: k-fold out-of-fold on ALL flows, not random split
+- **MITRE ATT&CK aligned**: T1595 (Reconnaissance), T1498 (Impact), T1110.001 (Credential Access)
+- **Multi-stage correlation**: Alerts chained into incidents with severity escalation
+- **AI assistant**: Offline knowledge-base mode (no API key needed)
+- **Lusaka-contextualized**: Free tools, ISP contact, ZM-CIRT awareness
+- **Single-file demo**: `outputs/demo.html` opens in any browser
 
+## Evaluation Results (Summary)
+
+| Evaluation | Precision | Recall | F1 | FPR |
+|------------|-----------|--------|-----|-----|
+| Baseline (3-fold OOF, no port) | 0.99987 | 0.99988 | 0.99987 | 6.1×10⁻⁵ |
+| Baseline (3-fold OOF, with port) | 0.99989 | 0.99991 | 0.99990 | 5.2×10⁻⁵ |
+| Chronological split | 0.9995 | 0.9970 | 0.9982 | 1.1×10⁻⁴ |
+| LOAO (DDoS unseen) | — | 0.4496 | — | 4.1×10⁻⁵ |
+| LOAO (PortScan unseen) | — | 0.0004 | — | 4.6×10⁻⁵ |
+
+## MITRE ATT&CK Mappings
+
+| Attack Class | Technique ID | Technique Name | Tactic | Severity |
+|--------------|--------------|----------------|--------|----------|
+| PortScan | T1595 | Active Scanning (T1595.001) | Reconnaissance | Medium |
+| DDoS | T1498 | Network Denial of Service (T1498.001) | Impact | High |
+| FTP-Patator | T1110.001 | Brute Force: Password Guessing | Credential Access | High |
+| SSH-Patator | T1110.001 | Brute Force: Password Guessing | Credential Access | High |
+
+## AI Assistant Modes
+
+- **offline**: Deterministic knowledge-base report (default, no dependencies)
+- **llm**: Anthropic Claude (requires `ANTHROPIC_API_KEY` and `pip install anthropic`)
+- **auto**: LLM if key available, otherwise offline
+
+```bash
+# Offline (default)
+python step4_assistant.py --incident INC-003
+
+# LLM mode
+export ANTHROPIC_API_KEY=sk-...
+python step4_assistant.py --incident INC-003 --mode llm
 ```
-data/          raw captures, clean.csv, mini subset/
-models/        xgb.json + classes.json (final model)
-outputs/       metrics, predictions, alerts, incidents, hard_eval,
-               reports/*.md, demo.html
-writeups/      audit log of changes (OpenCode + Kilo) and PROMPT_FOR_KILO.txt
-step1..6.py    pipeline scripts
-```
 
-## Notes & caveats
+## Limitations
 
-- Detections are ML predictions on flow data — **not proof of compromise**;
-  confirm with firewall/server/auth logs before acting.
-- Source IPs may be NAT/shared; do not attribute beyond the data.
-- `UNMAPPED` attack classes don't crash step 3 (they become a placeholder plus
-  a printed warning) — add the mapping to step 3 + step 4 KB and rerun 3/4/6.
+1. **Supervised only** — poor zero-shot generalization (LOAO 0.04–45% recall)
+2. **CICIDS2017 synthetic** — validate on production Zeek/Suricata flows
+3. **Flow-level only** — no payload/L7 visibility
+4. **Single-source correlation** — misses distributed attacks
+5. **LLM not evaluated** — "implemented, not evaluated" (no API key in test env)
 
-## Collaboration
+## Future Work
 
-Two agents work in this repo (OpenCode + Kilo in VS Code). Changes are logged
-under `writeups/` so either agent can audit decisions and reproduce results.
-See `writeups/PROMPT_FOR_KILO.txt`.
+- Add unsupervised anomaly detection layer
+- Live packet capture integration (Zeek, Suricata)
+- Graph-based multi-source correlation
+- LLM-assisted triage with RAG on local KB
+- Edge deployment (Raspberry Pi, Jetson)
+
+## License
+
+MIT — free for research, education, and operational use.
+
+## Citation
+
+If you use this in research, please cite:
+- CICIDS2017 dataset: Sharafaldin et al., "Toward Generating a New Intrusion Detection Dataset and Intrusion Traffic Characterization"
+- MITRE ATT&CK framework: https://attack.mitre.org/

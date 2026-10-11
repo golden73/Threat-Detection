@@ -93,6 +93,11 @@ def main(path: str, folds: int, with_port: bool) -> None:
     print("class counts:")
     print(df["Label"].value_counts().to_string())
 
+    if folds < 2:
+        print(f"WARNING: --folds {folds} is invalid (sklearn needs >= 2); "
+              f"using 2 folds. Use --folds 3+ for a real evaluation.")
+        folds = 2
+
     counts = np.bincount(y)
     if counts.min() < folds:
         rare = [le.classes_[i] for i in np.where(counts < folds)[0]]

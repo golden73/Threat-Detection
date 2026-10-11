@@ -1,13 +1,13 @@
-# Core ML/data stack
+# Minimal requirements for AI-Assisted Threat Detection & Response System
+# Install with: pip install -r requirements.txt
+
 numpy==2.4.6
 pandas==2.3.3
-scipy==1.17.1
 scikit-learn==1.9.1
+scipy==1.17.1
+xgboost==3.4.1
+anthropic==1.13.0
+markdown==3.10.3
+weasyprint==69.0
 joblib==1.5.3
 threadpoolctl==3.7.0
-
-# Model
-xgboost==3.4.1
-
-# Optional: LLM assistant mode (step4 --mode llm / auto)
-anthropic==1.13.0

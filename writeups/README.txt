@@ -10,6 +10,13 @@ Templates: see PROMPT_FOR_KILO.txt (paste it into Kilo)
 ------------------------------------------------------------------------
 LOG
 ------------------------------------------------------------------------
+2026-10-11  final_gap_closing.txt
+            OpenCode: after Kilo's wrap-up. Re-ran with-port step2 at
+            3-fold (same as metrics.json) -> synced README/slides/demo
+            to 3-fold numbers; rebuilt slides.pdf (build_slides.py) +
+            demo.pdf (chromium); ran clean-venv run-order test (ALL
+            steps pass in fresh venv); fixed step2 --folds 1 edge case.
+
 2026-10-11  pipeline_rerun.txt
             OpenCode: full rerun under patched scripts. check_data.py +
             data_check.json; step2 --folds 3 (both variants); step3

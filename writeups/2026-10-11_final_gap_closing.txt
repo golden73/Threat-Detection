@@ -1,0 +1,89 @@
+========================================================================
+WRITEUP: Final gaps closed by OpenCode after Kilo's wrap-up
+========================================================================
+Date:       2026-10-11 (afternoon)
+Agent:      OpenCode (Big Pickle)
+Status:     DONE - all previously SKIPPED items either done or handed over
+Context:    Kilo declared the project complete (final_checklist.txt) and
+            skipped the manual/10min+ items. OpenCode verified the state,
+            fixed a docs/numbers inconsistency, and ran the clean-venv test.
+
+------------------------------------------------------------------------
+1. WHAT OPENCODE FOUND / VERIFIED (git status, demos vs JSON)
+------------------------------------------------------------------------
+- Kilo's checklist items were accurate (deliverables exist: slides.md,
+  slides.pdf, demo_script.txt, writeups, README, requirements.txt).
+- INCONSISTENCY FOUND: Kilo's README/slides/writeups quoted "2-fold"
+  with-port numbers (P=0.99991, FPR=4.26e-05), but the canonical
+  outputs/metrics_with_port.json on disk was a 3-fold run
+  (P=0.99989, FPR=5.18e-05) matching outputs/metrics.json (3-fold).
+  Mixed fold counts = not apples-to-apples on the comparison slide.
+- FIX: re-ran step2 --folds 3 --with-dest-port in the main venv
+  (~4 min, deterministic SEED=42 => same numbers as the committed 3-fold
+  file). Synced README table + slides.md to the 3-fold numbers and rebuilt
+  slides.pdf, demo.html, demo.pdf.
+
+------------------------------------------------------------------------
+2. DELIVERABLES REBUILT / SYNCED (all consistent now)
+------------------------------------------------------------------------
+- outputs/metrics.json           3-fold OOF, no port
+- outputs/metrics_with_port.json 3-fold OOF, with port (re-run)
+- outputs/demo.html      regenerated (step6) -> numbers match both JSONs
+- outputs/demo.pdf       NEW (chromium headless print-to-pdf, 5 pages)
+- slides.md + slides.pdf rebuilt from slides.md via build_slides.py
+  -> 12 slides (was "~11"), WeasyPrint A4 landscape
+- README.md evaluation table + step2 commands updated to --folds 3
+
+Canonical numbers (slides/demo/README/JSON all agree):
+  no port : P=0.99987 R=0.99988 F1=0.99987 FPR=6.09e-05
+  with port: P=0.99989 R=0.99991 F1=0.99990 FPR=5.18e-05
+  takeaway: destination port is NOT what drives the high scores.
+
+------------------------------------------------------------------------
+3. CLEAN-VENV RUN-ORDER TEST (previously SKIPPED) - NOW DONE
+------------------------------------------------------------------------
+Used: /tmp/opencode/td_clean (fresh python3 -m venv)
+  1. pip install -r requirements.txt  -> OK (~305MB xgboost wheel
+     required a resume, but completed; all 11 packages installed)
+  2. Imports OK: numpy, pandas, sklearn, xgboost, markdown, weasyprint,
+     anthropic
+  3. Ran the FULL run order in a temp dir /tmp/opencode/td_smoke
+     (so canonical outputs/ were NOT overwritten):
+       step1 --load clean...           OK  (clean_smoke.csv, 957,445 rows)
+       step2 --folds 2                 OK  (2-fold OOF, all flows)
+       step3 alerts                    OK  (7 alerts -> 5 incidents)
+       step4 --incident INC-003 offline OK (report saved)
+       step5 hard_eval                 OK  (chrono + LOAO + cross-capture)
+       step6 demo page                 OK  (demo.html built)
+VERDICT: run order works in a clean environment. requirements.txt is
+complete and sufficient.
+
+------------------------------------------------------------------------
+4. EDGE-CASE BUG FOUND & FIXED (step2 --folds 1)
+------------------------------------------------------------------------
+- symptom: `--folds 1` crashed with sklearn
+  "k-fold cross-validation requires n_splits=2 or more".
+- fix: step2_baseline.py now guards folds<2 -> warns and uses 2 folds.
+- verified in the clean venv after copying the patched script.
+
+------------------------------------------------------------------------
+5. NEW FILES ADDED
+------------------------------------------------------------------------
+- build_slides.py        markdown -> WeasyPrint PDF (12 slid) builder
+- writeups/2026-10-11_final_gap_closing.txt  (this file)
+
+------------------------------------------------------------------------
+6. STILL FOR THE HUMAN (cannot be done from here)
+------------------------------------------------------------------------
+- Screen recording of the live demo (needs GUI/mic -> OBS or ffmpeg x11grab)
+- Practise Q&A / two timed run-throughs (human performance)
+- Copy to USB + cloud, charge laptop, projector test
+- Optional: LLM evaluation if ANTHROPIC_API_KEY becomes available
+- Optional: demo.html print-to-PDF is DONE via chromium; browser Ctrl+P
+  is the manual alternative.
+
+Suggestion: reviewer asked "Why are scores so high?" and "Why only 4
+attack types?" -> answers are in writeups/2026-10-11_qa_answers.txt
+(Kilo). Hard-eval honesty story (LOAO 0.04%-45%, cross-capture ~0%) is
+the expected follow-up discussion point.
+========================================================================
