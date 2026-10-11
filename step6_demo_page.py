@@ -105,18 +105,43 @@ def pct(x):
 
 def main():
     metrics = jload("metrics.json", {})
+    metrics_bp = jload("metrics_with_port.json", {})
+    check = jload("data_check.json", {})
     hard = jload("hard_eval.json", {})
     alerts = jload("alerts.json", [])
     incidents = jload("incidents.json", [])
 
     parts = []
-    # 1. Detection performance
+    # 0. Data overview
+    if check:
+        parts.append("<h2>0. Data</h2><div class='cards'>"
+                     f"<div class='card'><b>{check['rows']:,}</b>clean flows</div>"
+                     f"<div class='card'><b>{check['n_attack_classes']}</b>classes</div>"
+                     f"<div class='card'><b>{len(check['capture_files'])}</b>capture files</div>"
+                     f"<div class='card'><b>{check['duplicate_rows']:,}</b>duplicates</div></div>"
+                     "<p class='note'>Classes: " +
+                     ", ".join(f"{k} {v:,}" for k, v in check["attack_classes"].items()) + "</p>")
+    # 1. Detection performance (3-fold out-of-fold, all flows, dest port excluded)
     if metrics:
-        parts.append("<h2>1. Detection performance (baseline, random split)</h2><div class='cards'>"
+        parts.append("<h2>1. Detection performance (3-fold out-of-fold, all flows)</h2><div class='cards'>"
                      f"<div class='card'><b>{pct(metrics['precision'])}</b>precision</div>"
                      f"<div class='card'><b>{pct(metrics['recall'])}</b>recall</div>"
                      f"<div class='card'><b>{pct(metrics['f1'])}</b>F1</div>"
                      f"<div class='card'><b>{metrics['false_positive_rate'] * 100:.4f}%</b>false-positive rate</div></div>")
+    # 1b. With vs without destination port (legit-honesty comparison)
+    if metrics and metrics_bp:
+        rows = ("<tr><td></td><td>Without dest. port</td><td>With dest. port</td></tr>"
+                + "".join(
+                    f"<tr><td>{lab}</td><td>{pct(metrics[k])}</td><td>{pct(metrics_bp[k])}</td></tr>"
+                    for lab, k in [("Precision", "precision"), ("Recall", "recall"), ("F1", "f1")]
+                )
+                + f"<tr><td>FPR</td><td>{metrics['false_positive_rate'] * 100:.4f}%</td>"
+                  f"<td>{metrics_bp['false_positive_rate'] * 100:.4f}%</td></tr>")
+        parts.append("<h4>Honesty check: destination port as a feature?</h4>"
+                     "<table><tr><th>Metric</th><th>No port</th><th>With port</th></tr>"
+                     f"{rows}</table><p class='note'>The destination port is excluded as a "
+                     "feature: it almost reveals the label (21=FTP, 22=SSH, 80=DDoS). "
+                     "Scores stay high even without it.</p>")
     chrono = hard.get("chronological")
     if chrono:
         o = chrono["overall"]
@@ -131,6 +156,22 @@ def main():
                      "<table><tr><th>Held-out attack</th><th>Detected when unseen</th><th>Benign FPR</th></tr>"
                      f"{rows}</table><p class='note'>Limitation: the supervised model is strong on known attacks "
                      "but weak on unseen ones. Future work: add an anomaly-detection layer.</p>")
+    cc = hard.get("cross_capture")
+    if cc:
+        blocks = []
+        for capture, c in cc.items():
+            per = "".join(
+                f"<tr><td>{html.escape(lab)}</td><td>{pct(v['recall'])}</td>"
+                f"<td>{html.escape(v['flag'])}</td></tr>"
+                for lab, v in c["per_attack_recall"].items())
+            blocks.append(f"<details><summary><b>{html.escape(capture)}</b> — overall "
+                          f"precision {pct(c['overall']['precision'])}, recall {pct(c['overall']['recall'])}"
+                          "</summary><table><tr><th>Class</th><th>Recall</th><th>In training?</th></tr>"
+                          f"{per}</table></details>")
+        parts.append("<h4>Cross-capture (train on other days, test on held-out capture)</h4>"
+                     "<p class='note'>'NOT TESTED' = class absent from training: a real zero-shot "
+                     "test. These recall values are much lower, which is expected.</p>"
+                     + "".join(blocks))
 
     # 3. Alerts
     rows = "".join(

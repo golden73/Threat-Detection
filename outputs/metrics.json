@@ -1,10 +1,12 @@
 {
-  "precision": 0.9999223877949264,
-  "recall": 0.9998558726357569,
-  "f1": 0.9998891291091524,
-  "false_positive_rate": 3.5526502771067216e-05,
-  "tp": 90185,
-  "fp": 7,
-  "fn": 13,
-  "tn": 197029
+  "precision": 0.9998669615685231,
+  "recall": 0.9998802638187194,
+  "f1": 0.9998736126493782,
+  "false_positive_rate": 6.090282345489537e-05,
+  "tp": 300625,
+  "fp": 40,
+  "fn": 36,
+  "tn": 656744,
+  "evaluation": "3-fold out-of-fold on all 957445 flows",
+  "destination_port_as_feature": false
 }

@@ -5,12 +5,21 @@ Step 5: Harder evaluation (more honest than the random split in step 2).
      time range and test on the last 30% (the model never sees the future).
   B) Leave-one-attack-out: train WITHOUT one attack type, then test whether the
      model still flags it (a proxy for detecting unseen / novel attacks).
+  C) Cross-capture: train on N-1 capture files, test on the one held out. Flags
+     each class as "also in training" (seen) or "NOT TESTED" (a real zero-shot
+     test, because the class is absent from training entirely).
+
+By default the destination port is NOT a model feature (it nearly gives the
+label away, see step2). Pass --with-dest-port to include it; that run writes
+outputs/hard_eval_with_port.json and does not overwrite the default file.
 
 Usage:
     python step5_hard_eval.py data/clean.csv
+    python step5_hard_eval.py data/clean.csv --with-dest-port
 
-Output: printed tables + outputs/hard_eval.json
+Output: printed tables + outputs/hard_eval.json (or _with_port.json)
 """
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -21,7 +30,7 @@ from xgboost import XGBClassifier
 
 SEED = 42
 META = ["Flow ID", "Source IP", "Source Port", "Destination IP", "Timestamp", "source_file"]
-NOT_FEATURES = META + ["Label", "is_attack"]
+NOT_FEATURES = META + ["Destination Port", "Label", "is_attack"]  # port excluded by default
 BENIGN_CAP = 150_000   # max benign flows used for training
 ATTACK_CAP = 40_000    # max flows per attack type used for training
 
@@ -53,6 +62,19 @@ def prf(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
             "fpr": round(fp / (fp + tn), 6) if fp + tn else 0.0}
 
 
+def _per_attack(test: pd.DataFrame, pred: np.ndarray, train_labels: set[str]) -> dict:
+    """Per-class recall for the test set, flagging classes unseen in training."""
+    per = {}
+    for lab, g in test[test.is_attack == 1].groupby("Label"):
+        seen = lab in train_labels
+        per[lab] = {
+            "test_flows": int(len(g)),
+            "recall": round(float(pred[test.index.get_indexer(g.index)].mean()), 4),
+            "flag": "also in training" if seen else "NOT TESTED",
+        }
+    return per
+
+
 def chronological(df: pd.DataFrame, feats: list[str]) -> dict:
     df = df.copy()
     df["ts"] = parse_ts(df["Timestamp"])
@@ -67,14 +89,12 @@ def chronological(df: pd.DataFrame, feats: list[str]) -> dict:
     model = fit(train[feats].astype("float32"), train["is_attack"].values)
     pred = model.predict(test[feats].astype("float32"))
 
-    res = {"overall": prf(test["is_attack"].values, pred), "per_attack_recall": {}}
-    for lab, g in test[test.is_attack == 1].groupby("Label"):
-        res["per_attack_recall"][lab] = {"test_flows": len(g),
-                                         "recall": round(float(pred[test.index.get_indexer(g.index)].mean()), 4)}
+    res = {"overall": prf(test["is_attack"].values, pred),
+           "per_attack_recall": _per_attack(test, pred, set(train["Label"].unique()))}
     print(f"train flows: {len(train):,}  test flows: {len(test):,}")
     print("Overall (attack vs benign):", res["overall"])
     for lab, v in res["per_attack_recall"].items():
-        print(f"  {lab:<12} test flows={v['test_flows']:>7,}  recall={v['recall']:.4f}")
+        print(f"  {lab:<12} test flows={v['test_flows']:>7,}  recall={v['recall']:.4f}  ({v['flag']})")
     return res
 
 
@@ -96,21 +116,54 @@ def leave_one_attack_out(df: pd.DataFrame, feats: list[str]) -> dict:
     return res
 
 
-def main(path: str) -> None:
+def cross_capture(df: pd.DataFrame, feats: list[str]) -> dict:
+    files = sorted(df["source_file"].unique())
+    res = {}
+    for held in files:
+        train = df[df["source_file"] != held]
+        test = df[df["source_file"] == held]
+        train = pd.concat([cap(train[train.is_attack == 0], BENIGN_CAP),
+                           train[train.is_attack == 1]])
+        model = fit(train[feats].astype("float32"), train["is_attack"].values)
+        pred = model.predict(test[feats].astype("float32"))
+        per = _per_attack(test, pred, set(train["Label"].unique()))
+        res[held] = {"overall": prf(test["is_attack"].values, pred),
+                     "per_attack_recall": per}
+        print(f"\nheld out capture: {held}")
+        print(f"  train flows: {len(train):,}  test flows: {len(test):,}")
+        print("  Overall (attack vs benign):", res[held]["overall"])
+        for lab, v in per.items():
+            print(f"    {lab:<12} test flows={v['test_flows']:>7,}  recall={v['recall']:.4f}  ({v['flag']})")
+    return res
+
+
+def main(path: str, with_port: bool) -> None:
     df = pd.read_csv(path, low_memory=False)
     df["Label"] = df["Label"].str.strip()
     feats = [c for c in df.columns if c not in NOT_FEATURES]
+    if with_port:
+        feats.append("Destination Port")
 
-    print("=== A) Chronological split (train early, test late) ===")
+    print(f"features: {len(feats)} (destination port {'IS' if with_port else 'is NOT'} a feature)")
+    print("\n=== A) Chronological split (train early, test late) ===")
     a = chronological(df, feats)
     print("\n=== B) Leave-one-attack-out (unseen attack types) ===")
     b = leave_one_attack_out(df, feats)
+    print("\n=== C) Cross-capture (train on N-1 captures, test on held-out) ===")
+    c = cross_capture(df, feats)
 
     Path("outputs").mkdir(exist_ok=True)
-    json.dump({"chronological": a, "leave_one_attack_out": b},
-              open("outputs/hard_eval.json", "w"), indent=2)
-    print("\nsaved outputs/hard_eval.json")
+    out = "outputs/hard_eval.json" if not with_port else "outputs/hard_eval_with_port.json"
+    with open(out, "w") as f:
+        json.dump({"chronological": a, "leave_one_attack_out": b,
+                   "cross_capture": c, "destination_port_as_feature": with_port},
+                  f, indent=2)
+    print(f"\nsaved {out}")
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "data/clean.csv")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("path", nargs="?", default="data/clean.csv")
+    ap.add_argument("--with-dest-port", action="store_true")
+    args = ap.parse_args()
+    main(args.path, args.with_dest_port)

@@ -1,13 +1,13 @@
 # INC-003  (CRITICAL)
 
 ## Summary
-Source 172.16.0.1 showed 3 detected activity burst(s) (86,033 flows) between 2017-07-07T13:55:00 and 2017-07-07T16:16:00, covering the tactics: Reconnaissance -> Impact. Target(s): 192.168.10.50.
+Source 172.16.0.1 showed 3 detected activity burst(s) (286,793 flows) between 2017-07-07T13:52:00 and 2017-07-07T16:16:00, covering the tactics: Reconnaissance -> Impact. Target(s): 192.168.10.50.
 Multiple stages from one source suggest a deliberate, staged attack rather than a one-off event.
 
 ## Timeline
-- 2017-07-07T13:55:00 to 2017-07-07T14:16:00: PortScan (109 flows, 5 target ports, avg confidence 1.00)
-- 2017-07-07T14:51:00 to 2017-07-07T15:23:00: PortScan (47,526 flows, 999 target ports, avg confidence 1.00)
-- 2017-07-07T15:56:00 to 2017-07-07T16:16:00: DDoS (38,398 flows, 1 target ports, avg confidence 1.00)
+- 2017-07-07T13:52:00 to 2017-07-07T14:16:00: PortScan (363 flows, 5 target ports, avg confidence 1.00)
+- 2017-07-07T14:51:00 to 2017-07-07T15:23:00: PortScan (158,422 flows, 998 target ports, avg confidence 1.00)
+- 2017-07-07T15:56:00 to 2017-07-07T16:16:00: DDoS (128,008 flows, 1 target ports, avg confidence 1.00)
 
 ## ATT&CK mapping
 - **T1595 Active Scanning** (tactic: Reconnaissance): The source actively probed the target network from outside to discover open ports and running services before attempting any further attack. This is pre-compromise reconnaissance: the scanner is preparing to find and hit an exposed service.

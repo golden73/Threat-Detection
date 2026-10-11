@@ -1,10 +1,10 @@
 # INC-001  (HIGH)
 
 ## Summary
-Source 172.16.0.1 showed 1 detected activity burst(s) (2,376 flows) between 2017-07-04T09:17:00 and 2017-07-04T10:20:00, covering the tactics: Credential Access. Target(s): 192.168.10.50.
+Source 172.16.0.1 showed 1 detected activity burst(s) (7,923 flows) between 2017-07-04T09:19:00 and 2017-07-04T10:20:00, covering the tactics: Credential Access. Target(s): 192.168.10.50.
 
 ## Timeline
-- 2017-07-04T09:17:00 to 2017-07-04T10:20:00: FTP-Patator (2,376 flows, 1 target ports, avg confidence 1.00)
+- 2017-07-04T09:19:00 to 2017-07-04T10:20:00: FTP-Patator (7,923 flows, 1 target ports, avg confidence 1.00)
 
 ## ATT&CK mapping
 - **T1110.001 Brute Force: Password Guessing** (tactic: Credential Access): Many login attempts against a service (here FTP or SSH) to guess valid credentials. If one succeeds, the attacker gains access to the system.

@@ -10,6 +10,13 @@ Templates: see PROMPT_FOR_KILO.txt (paste it into Kilo)
 ------------------------------------------------------------------------
 LOG
 ------------------------------------------------------------------------
+2026-10-11  pipeline_rerun.txt
+            OpenCode: full rerun under patched scripts. check_data.py +
+            data_check.json; step2 --folds 3 (both variants); step3
+            (7 alerts -> 5 incidents); step4 reports x5; step5 patched
+            (--with-dest-port, cross-capture, "NOT TESTED" flags) +
+            both evals; step6 demo upgraded + verified vs JSON.
+
 2026-10-11  portscan_mapping_change.txt
             OpenCode: PortScan MITRE mapping T1046 -> T1595
             (Active Scanning / Reconnaissance). DDoS kept as T1498.
