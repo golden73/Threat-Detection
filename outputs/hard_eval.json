@@ -1,0 +1,42 @@
+{
+  "chronological": {
+    "overall": {
+      "precision": 0.9994,
+      "recall": 0.9974,
+      "f1": 0.9984,
+      "fpr": 0.000123
+    },
+    "per_attack_recall": {
+      "DDoS": {
+        "test_flows": 20450,
+        "recall": 0.9987
+      },
+      "PortScan": {
+        "test_flows": 21032,
+        "recall": 0.997
+      },
+      "SSH-Patator": {
+        "test_flows": 2935,
+        "recall": 0.9911
+      }
+    }
+  },
+  "leave_one_attack_out": {
+    "DDoS": {
+      "unseen_attack_recall": 0.323,
+      "benign_fpr": 2.5e-05
+    },
+    "FTP-Patator": {
+      "unseen_attack_recall": 0.341,
+      "benign_fpr": 1.5e-05
+    },
+    "PortScan": {
+      "unseen_attack_recall": 0.0036,
+      "benign_fpr": 3e-05
+    },
+    "SSH-Patator": {
+      "unseen_attack_recall": 0.0027,
+      "benign_fpr": 1.5e-05
+    }
+  }
+}
