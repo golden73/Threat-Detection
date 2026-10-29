@@ -1,0 +1,112 @@
+[
+  {
+    "source_ip": "172.16.0.1",
+    "first_seen": "2017-07-04T09:19:00",
+    "last_seen": "2017-07-04T10:20:00",
+    "alert_ids": [
+      "ALR-0001"
+    ],
+    "tactics": [
+      "Credential Access"
+    ],
+    "techniques": [
+      "T1110.001"
+    ],
+    "total_flows": 7923,
+    "targets": [
+      "192.168.10.50"
+    ],
+    "severity": "high",
+    "summary": "172.16.0.1: FTP-Patator (T1110.001)",
+    "incident_id": "INC-001"
+  },
+  {
+    "source_ip": "172.16.0.1",
+    "first_seen": "2017-07-04T14:09:00",
+    "last_seen": "2017-07-04T15:11:00",
+    "alert_ids": [
+      "ALR-0002"
+    ],
+    "tactics": [
+      "Credential Access"
+    ],
+    "techniques": [
+      "T1110.001"
+    ],
+    "total_flows": 5879,
+    "targets": [
+      "192.168.10.50"
+    ],
+    "severity": "high",
+    "summary": "172.16.0.1: SSH-Patator (T1110.001)",
+    "incident_id": "INC-002"
+  },
+  {
+    "source_ip": "172.16.0.1",
+    "first_seen": "2017-07-07T13:52:00",
+    "last_seen": "2017-07-07T16:16:00",
+    "alert_ids": [
+      "ALR-0003",
+      "ALR-0005",
+      "ALR-0006"
+    ],
+    "tactics": [
+      "Reconnaissance",
+      "Impact"
+    ],
+    "techniques": [
+      "T1595",
+      "T1595",
+      "T1498"
+    ],
+    "total_flows": 286793,
+    "targets": [
+      "192.168.10.50"
+    ],
+    "severity": "critical",
+    "summary": "172.16.0.1: PortScan (T1595) -> DDoS (T1498)",
+    "incident_id": "INC-003"
+  },
+  {
+    "source_ip": "192.168.10.9",
+    "first_seen": "2017-07-07T14:45:00",
+    "last_seen": "2017-07-07T14:46:00",
+    "alert_ids": [
+      "ALR-0004"
+    ],
+    "tactics": [
+      "Impact"
+    ],
+    "techniques": [
+      "T1498"
+    ],
+    "total_flows": 5,
+    "targets": [
+      "39.130.133.34"
+    ],
+    "severity": "high",
+    "summary": "192.168.10.9: DDoS (T1498)",
+    "incident_id": "INC-004"
+  },
+  {
+    "source_ip": "192.168.10.5",
+    "first_seen": "2017-07-07T16:54:00",
+    "last_seen": "2017-07-07T16:55:00",
+    "alert_ids": [
+      "ALR-0007"
+    ],
+    "tactics": [
+      "Impact"
+    ],
+    "techniques": [
+      "T1498"
+    ],
+    "total_flows": 5,
+    "targets": [
+      "122.225.115.212"
+    ],
+    "severity": "high",
+    "summary": "192.168.10.5: DDoS (T1498)",
+    "incident_id": "INC-005"
+  }
+]

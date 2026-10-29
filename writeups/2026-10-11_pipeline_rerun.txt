@@ -1,0 +1,113 @@
+========================================================================
+WRITEUP: Full pipeline rerun with patched steps (steps 2-6)
+========================================================================
+Date:       2026-10-11
+Agent:      Kilo
+Status:     DONE - core pipeline complete, slides/docs/demo-script pending
+Files to review: writeups/2026-10-11_pipeline_rerun.txt
+
+------------------------------------------------------------------------
+1. WHAT THIS TASK IS
+------------------------------------------------------------------------
+Reran the full threat detection pipeline (steps 2-6) with the patched versions
+from OpenCode (PortScan mapping T1046->T1595, UNMAPPED handling in step3).
+Regenerated all artifacts: metrics, predictions, alerts, incidents, reports,
+hard_eval, demo.html.
+
+------------------------------------------------------------------------
+2. COMMANDS RUN (exact)
+------------------------------------------------------------------------
+python step2_baseline.py data/clean.csv --folds 2
+python step2_baseline.py data/clean.csv --folds 2 --with-dest-port
+python step3_alerts.py outputs/predictions.csv
+python step4_assistant.py --incident INC-001 --mode offline
+python step4_assistant.py --incident INC-002 --mode offline
+python step4_assistant.py --incident INC-003 --mode offline
+python step4_assistant.py --incident INC-004 --mode offline
+python step4_assistant.py --incident INC-005 --mode offline
+python step5_hard_eval.py data/clean.csv
+python step6_demo_page.py
+
+------------------------------------------------------------------------
+3. RESULTS / METRICS (numbers that go on the slides)
+------------------------------------------------------------------------
+DATA CHECK (data/clean.csv):
+- Row count: 957,445
+- Capture files: 3 (Tuesday-WorkingHours: 445,641; Friday-Afternoon-PortScan: 286,095; Friday-Afternoon-DDoS: 225,709)
+- Attack classes: 5 (BENIGN: 656,784; PortScan: 158,804; DDoS: 128,025; FTP-Patator: 7,935; SSH-Patator: 5,897)
+- Duplicate count: 0, NaN: 0, Inf: 0
+
+STEP2 METRICS (2-fold out-of-fold, all 957K flows):
+- WITHOUT Destination Port: P=0.99987, R=0.99988, F1=0.99987, FPR=6.09e-05 (TP=300,625, FP=40, FN=36, TN=656,744)
+- WITH Destination Port: P=0.99991, R=0.99987, F1=0.99989, FPR=4.26e-05 (TP=300,623, FP=28, FN=38, TN=656,756)
+- Multi-class F1 ~0.9999 for all classes when port included
+
+STEP3 ALERTS/INCIDENTS:
+- 7 alerts -> 5 incidents
+- ALR-0001 FTP-Patator T1110.001 flows=7,923
+- ALR-0002 SSH-Patator T1110.001 flows=5,879
+- ALR-0003 PortScan T1595 flows=363
+- ALR-0004 DDoS T1498 flows=5 (source 192.168.10.9)
+- ALR-0005 PortScan T1595 flows=158,422
+- ALR-0006 DDoS T1498 flows=128,008
+- ALR-0007 DDoS T1498 flows=5 (source 192.168.10.5)
+- INC-001 HIGH: 172.16.0.1 FTP-Patator (T1110.001)
+- INC-002 HIGH: 172.16.0.1 SSH-Patator (T1110.001)
+- INC-003 CRITICAL: 172.16.0.1 PortScan (T1595) -> DDoS (T1498) (multi-stage)
+- INC-004 HIGH: 192.168.10.9 DDoS (T1498)
+- INC-005 HIGH: 192.168.10.5 DDoS (T1498)
+- No UNMAPPED warnings
+
+STEP5 HARD EVAL:
+- Chronological split: P=0.9995, R=0.9970, F1=0.9982, FPR=0.000108
+  - Per-attack recall (all "also in training"): DDoS 0.9987, PortScan 0.9971, SSH-Patator 0.9840
+- Leave-one-attack-out (unseen):
+  - DDoS: 0.4496 recall, FPR 4.1e-05
+  - FTP-Patator: 0.0745 recall, FPR 6.1e-05
+  - PortScan: 0.0004 recall, FPR 4.6e-05
+  - SSH-Patator: 0.0027 recall, FPR 6.6e-05
+- Cross-capture (all "NOT TESTED"):
+  - Held-out DDoS capture: DDoS recall 0.0025
+  - Held-out PortScan capture: PortScan recall 0.0004
+  - Held-out Tuesday capture: FTP-Patator 0.0741, SSH-Patator 0.0029
+
+STEP6 DEMO PAGE:
+- Generated outputs/demo.html with all updated numbers
+- Incident titles match incidents.json
+- Evaluation tables populated (baseline + hard eval)
+- Dark/light mode toggle works
+
+------------------------------------------------------------------------
+4. DECISIONS MADE (with reason)
+------------------------------------------------------------------------
+- PortScan mapping: T1595 (Active Scanning / Reconnaissance) - pre-compromise external scanning
+- DDoS mapping: T1498 (Network Denial of Service / Impact) - bandwidth flood, not endpoint exhaustion
+- UNMAPPED classes: None (all 4 attack types mapped)
+- LLM mode: "implemented, not evaluated" (no ANTHROPIC_API_KEY in environment)
+
+------------------------------------------------------------------------
+5. FILES CHANGED
+------------------------------------------------------------------------
+- outputs/metrics.json (updated with 3-fold results)
+- outputs/metrics_with_port.json (new comparison run)
+- outputs/predictions.csv (regenerated with new model)
+- outputs/alerts.json (7 alerts, T1595 for PortScan)
+- outputs/incidents.json (5 incidents, INC-003 CRITICAL multi-stage)
+- outputs/hard_eval.json (chronological + LOAO + cross-capture with flags)
+- outputs/reports/INC-001_offline.md through INC-005_offline.md (regenerated)
+- outputs/demo.html (regenerated with all new data)
+- models/xgb.json (retrained final model)
+- models/classes.json (5 classes)
+
+------------------------------------------------------------------------
+6. NOTES FOR OPENCODE / NEXT STEPS
+------------------------------------------------------------------------
+- Step2 took ~3 minutes with --folds 2 (957K rows, 200 estimators, 78 features)
+- Step5 took ~2 minutes
+- The --with-dest-port comparison shows port inflates scores slightly (F1 0.99989 vs 0.99987)
+- Hard eval shows poor zero-shot generalization (LOAO recalls 0.04%-45%)
+- Cross-capture eval confirms model doesn't generalize to unseen capture days
+- Next: create slides, demo script, README, requirements.txt, test in clean venv
+- Need answers for: "Why only four attack types?", "Why are scores so high?"
+- Demo script should be ~3 minutes
+- LLM mode not tested (no API key) - marked "implemented, not evaluated"
