@@ -14,3 +14,13 @@ venv/
 
 # Generated / large artifacts (already tracked, but keep future regenerations out)
 *.zip
+# Extra
+.env
+.env.*
+*.log
+logs/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
