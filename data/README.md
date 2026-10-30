@@ -46,11 +46,13 @@ python check_data.py            # sanity check: rows, classes, nulls
 ## 4. Regenerate the rest
 
 ```bash
-python step2_baseline.py   # XGBoost baseline, 3-fold OOF
-python step3_alerts.py     # predictions -> alerts -> incidents + ATT&CK
-python step5_hard_eval.py  # chronological / LOAO / cross-capture eval
-python step6_demo_page.py  # outputs/demo.html
+python step2_baseline.py data/clean.csv --folds 3   # XGBoost baseline, 3-fold OOF
+python step3_alerts.py outputs/predictions.csv      # predictions -> alerts -> incidents + ATT&CK
+python step5_hard_eval.py data/clean.csv            # chronological / LOAO / cross-capture eval
+python step6_demo_page.py                           # outputs/demo.html
 ```
+
+Or run the whole pipeline (steps 1-6) with `python run_pipeline.py`.
 
 `outputs/predictions.csv` and `outputs/demo.pdf` are ignored for the same size
 reasons; everything else under `outputs/` is committed so the README numbers

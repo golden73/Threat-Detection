@@ -11,14 +11,15 @@ analyst reports, and a standalone demo page — all offline-capable.
 ├── data/
 │   ├── raw/                 # Original CICIDS2017 CSVs (download separately)
 │   ├── subset/              # Pre-cleaned subset (optional)
-│   └── clean.csv            # Merged & cleaned data (957K flows, 80 features)
+│   ├── clean.csv            # Merged & cleaned data (957K flows, 80 features)
+│   └── README.md            # How to obtain and regenerate the data
 ├── models/
 │   ├── xgb.json             # Trained XGBoost model
 │   └── classes.json         # Class labels
 ├── outputs/
 │   ├── metrics.json         # Baseline metrics (no port)
 │   ├── metrics_with_port.json  # Comparison with Destination Port
-│   ├── predictions.csv      # Per-flow out-of-fold predictions
+│   ├── predictions.csv      # Per-flow out-of-fold predictions (gitignored)
 │   ├── alerts.json          # Correlated alerts with ATT&CK
 │   ├── incidents.json       # Multi-alert incidents
 │   ├── hard_eval.json       # Chronological + LOAO + cross-capture
@@ -28,14 +29,12 @@ analyst reports, and a standalone demo page — all offline-capable.
 ├── step2_baseline.py        # XGBoost baseline (k-fold OOF, no port)
 ├── step3_alerts.py          # Predictions → alerts → incidents + ATT&CK
 ├── step4_assistant.py       # AI SOC assistant (LLM or offline KB)
+├── step4_assistant_enhanced.py  # Optional multi-provider assistant
 ├── step5_hard_eval.py       # Chronological / LOAO / cross-capture eval
 ├── step6_demo_page.py       # Build demo.html
-├── slides.md                # Presentation slides (12 slides)
-├── slides.pptx              # PowerPoint deck (editable, 16:9)
-├── slides.pdf               # Exported PDF (WeasyPrint)
-├── build_slides.py          # slides.md -> slides.pdf
-├── build_pptx.py            # slides.md -> slides.pptx
-├── demo_script.txt          # 3-minute demo script
+├── run_pipeline.py          # One-command runner for steps 1-6
+├── tests/test_smoke.py      # Structure / compile smoke tests
+├── slides.md                # Presentation outline (12 slides)
 └── requirements.txt         # Python dependencies
 ```
 
@@ -56,9 +55,18 @@ Download CICIDS2017 "MachineLearningCVE" CSVs and place in `data/raw/`:
 - Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv
 - Friday-WorkingHours-Afternoon-DDoS.pcap_ISCX.csv
 
-(Or use the provided `data/clean.csv` directly.)
+`data/` is gitignored; see `data/README.md` for download and regeneration
+details. If `data/clean.csv` already exists locally, step 1 is skipped.
 
 ### 3. Run Pipeline
+
+Run everything with one command:
+
+```bash
+python run_pipeline.py
+```
+
+Or run the steps individually:
 
 ```bash
 # Step 1: Clean data (if starting from raw CSVs)
@@ -135,6 +143,19 @@ python step4_assistant.py --incident INC-003
 export ANTHROPIC_API_KEY=sk-...
 python step4_assistant.py --incident INC-003 --mode llm
 ```
+
+For multiple providers (Ollama, OpenRouter, Anthropic), use the enhanced
+assistant. `--mode auto` picks whichever provider is available and falls back
+to the offline knowledge base:
+
+```bash
+python step4_assistant_enhanced.py --incident INC-003 --mode offline
+python step4_assistant_enhanced.py --incident INC-003 --mode ollama
+python step4_assistant_enhanced.py --ask "What should I do first?" --mode openrouter
+```
+
+The enhanced assistant uses `requests` for Ollama/OpenRouter and
+`ANTHROPIC_API_KEY` for Anthropic; no key is needed for offline mode.
 
 ## Limitations
 
