@@ -12,15 +12,21 @@ venv/
 .idea/
 .DS_Store
 
-# Generated / large artifacts (already tracked, but keep future regenerations out)
+# ---------------------------------------------------------------------------
+# Large datasets and generated artifacts — NEVER commit these.
+# The CICIDS2017 CSVs total ~3 GB, and GitHub rejects any single file >100 MB.
+# See data/README.md for how to obtain the data.
+# ---------------------------------------------------------------------------
+data/*
+!data/README.md
+outputs/predictions.csv
+outputs/demo.pdf
+*.csv
+*.pcap
+*.pcapng
 *.zip
-# Extra
+
+# Secrets
 .env
 .env.*
 *.log
-logs/
-.DS_Store
-Thumbs.db
-*.swp
-*.swo
-*~
