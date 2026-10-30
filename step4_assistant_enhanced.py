@@ -74,11 +74,12 @@ def load():
 
 
 def context_for(inc, alerts):
-    chain = [a for a in alerts if a["incident_id"] == inc["incident_id"]]
+    alert_ids = inc.get("alert_ids", [])
+    chain = [a for a in alerts if a["alert_id"] in alert_ids]
     return {
         "incident": inc,
         "alerts": chain,
-        "techniques": list({a["technique_id"] for a in chain}),
+        "techniques": inc.get("techniques", list({a["technique_id"] for a in chain})),
     }
 
 
@@ -229,7 +230,7 @@ def main():
         if mode == "ollama":
             text = call_ollama(prompt, args.model or "llama3.2")
         elif mode == "openrouter":
-            text = call_openrouter(prompt, args.model or "deepseek-chat")
+            text = call_openrouter(prompt, args.model or "openrouter/free")
         elif mode == "anthropic":
             text = call_anthropic(prompt)
         else:
@@ -249,7 +250,7 @@ def main():
     if mode == "ollama":
         text = call_ollama(prompt, args.model or "llama3.2")
     elif mode == "openrouter":
-        text = call_openrouter(prompt, args.model or "deepseek-chat")
+        text = call_openrouter(prompt, args.model or "openrouter/free")
     elif mode == "anthropic":
         text = call_anthropic(prompt)
     elif mode == "llm":  # backward compat
