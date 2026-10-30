@@ -29,7 +29,6 @@ analyst reports, and a standalone demo page — all offline-capable.
 ├── step2_baseline.py        # XGBoost baseline (k-fold OOF, no port)
 ├── step3_alerts.py          # Predictions → alerts → incidents + ATT&CK
 ├── step4_assistant.py       # AI SOC assistant (LLM or offline KB)
-├── step4_assistant_enhanced.py  # Optional multi-provider assistant
 ├── step5_hard_eval.py       # Chronological / LOAO / cross-capture eval
 ├── step6_demo_page.py       # Build demo.html
 ├── run_pipeline.py          # One-command runner for steps 1-6
@@ -144,18 +143,8 @@ export ANTHROPIC_API_KEY=sk-...
 python step4_assistant.py --incident INC-003 --mode llm
 ```
 
-For multiple providers (Ollama, OpenRouter, Anthropic), use the enhanced
-assistant. `--mode auto` picks whichever provider is available and falls back
-to the offline knowledge base:
-
-```bash
-python step4_assistant_enhanced.py --incident INC-003 --mode offline
-python step4_assistant_enhanced.py --incident INC-003 --mode ollama
-python step4_assistant_enhanced.py --ask "What should I do first?" --mode openrouter
-```
-
-The enhanced assistant uses `requests` for Ollama/OpenRouter and
-`ANTHROPIC_API_KEY` for Anthropic; no key is needed for offline mode.
+The assistant runs fully offline by default; set `ANTHROPIC_API_KEY` and use
+`--mode llm` to enable Anthropic Claude.
 
 ## Limitations
 

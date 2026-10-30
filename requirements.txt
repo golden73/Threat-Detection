@@ -7,8 +7,8 @@ scikit-learn==1.9.1
 scipy==1.17.1
 xgboost==3.4.1
 anthropic==1.13.0
-requests==2.32.5
 
 # Pinned transitive dependencies of scikit-learn/xgboost (reproducibility)
 joblib==1.5.3
 threadpoolctl==3.7.0
+
