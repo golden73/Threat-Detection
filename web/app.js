@@ -26,6 +26,31 @@ function bytes(n) {
   return `${n.toFixed(n >= 100 ? 0 : 1)} ${units[i]}`;
 }
 
+/* --------------------------------------------------------------- export */
+function downloadBlob(filename, content, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
+}
+function toCsv(rows) {
+  if (!rows || !rows.length) return "";
+  const keys = Object.keys(rows[0]);
+  const escCsv = (v) => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return [keys.join(","), ...rows.map((r) => keys.map((k) => escCsv(r[k])).join(","))].join("\n");
+}
+function exportJson(filename, data) {
+  downloadBlob(filename, JSON.stringify(data, null, 2), "application/json");
+}
+function exportCsv(filename, rows) {
+  downloadBlob(filename, toCsv(rows), "text/csv");
+}
+
 /* ------------------------------------------------------------------ state */
 const state = {
   overview: null,
@@ -428,6 +453,8 @@ async function viewAlerts() {
     </select>
     <button class="btn ghost" data-action="reset-alert-filters">Reset</button>
     <span class="spacer"></span>
+    <button class="btn ghost" data-action="export-alerts-json">Export JSON</button>
+    <button class="btn ghost" data-action="export-alerts-csv">Export CSV</button>
     <span class="count-label" id="alert-count"></span>
   </div>
 
@@ -472,7 +499,9 @@ async function viewIncidents() {
   </article>`).join("");
   return `${pageHead("Correlation layer", "Incidents",
     "Alerts from the same source chained across time into multi-stage incidents, with severity escalation.",
-    `<span class="chip">${num(incidents.length)} incidents</span>`)}
+    `<span class="chip">${num(incidents.length)} incidents</span>
+     <button class="btn ghost" data-action="export-incidents-json">Export JSON</button>
+     <button class="btn ghost" data-action="export-incidents-csv">Export CSV</button>`)}
     <div class="cards-grid">${cards}</div>`;
 }
 
@@ -551,7 +580,9 @@ async function viewReports() {
   }
   return `${pageHead("AI layer", "AI analyst reports",
     "Deterministic, offline knowledge-base reports: summary, timeline, ATT&amp;CK mapping, actions and caveats.",
-    `<span class="chip">${num(reports.length)} reports</span>`)}
+    `<span class="chip">${num(reports.length)} reports</span>
+     <button class="btn ghost" data-action="export-reports-json">Export JSON</button>
+     <button class="btn ghost" data-action="export-reports-csv">Export CSV</button>`)}
     <div class="table-wrap">
       <table>
         <thead><tr><th>Report</th><th>Incident</th><th>Mode</th><th class="num">Size</th><th>Updated</th></tr></thead>
@@ -811,14 +842,59 @@ async function pollLog() {
   }
 }
 
-function startLogPolling() {
-  if (state.logTimer) return;
-  state.logTimer = setInterval(pollLog, 1200);
-  pollLog();
-}
+let _eventSource = null;
 function stopLogPolling() {
   if (state.logTimer) clearInterval(state.logTimer);
   state.logTimer = null;
+  if (_eventSource) { try { _eventSource.close(); } catch (_) {} _eventSource = null; }
+}
+function startLogPolling() {
+  if (state.logTimer || _eventSource) return;
+  if (typeof EventSource !== "undefined") {
+    try {
+      _eventSource = new EventSource("/api/pipeline/events");
+      _eventSource.addEventListener("log", (e) => {
+        let text = "";
+        try { text = JSON.parse(e.data); } catch (_) { text = e.data; }
+        if (text) {
+          state.logOffset += text.length;
+          state.logRaw = (state.logRaw + text).slice(-400000);
+          appendLog(text);
+        }
+      });
+      _eventSource.addEventListener("status", (e) => {
+        try {
+          const st = JSON.parse(e.data);
+          updateRunPill(st);
+          const list = $("#step-list");
+          if (list) list.innerHTML = renderSteps(st);
+          const label = $("#pipe-state-label");
+          if (label) label.textContent = st.running ? (st.external ? "external run" : "running") : (st.exit_code === 0 ? "last run ok" : st.exit_code ? "last run failed" : "idle");
+          const runBtn = $('[data-action="run-pipeline"]');
+          const stopBtn = $('[data-action="stop-pipeline"]');
+          if (runBtn) runBtn.disabled = !!st.running;
+          if (stopBtn) stopBtn.disabled = !st.running || st.external;
+        } catch (_) {}
+      });
+      _eventSource.addEventListener("done", (e) => {
+        try {
+          const st = JSON.parse(e.data);
+          updatePipelineUi(st);
+          clearCache();
+        } catch (_) {}
+        stopLogPolling();
+      });
+      _eventSource.onerror = () => {
+        // Fall back to polling if SSE fails.
+        if (_eventSource) { try { _eventSource.close(); } catch (_) {} _eventSource = null; }
+        state.logTimer = setInterval(pollLog, 1200);
+        pollLog();
+      };
+      return;
+    } catch (_) { /* fall through to polling */ }
+  }
+  state.logTimer = setInterval(pollLog, 1200);
+  pollLog();
 }
 
 /* ----------------------------------------------------------------- draw */
@@ -980,6 +1056,13 @@ document.addEventListener("click", (e) => {
     const con = $("#console");
     if (con) con.innerHTML = "";
     state.logRaw = "";
+  } else if (a.startsWith("export-")) {
+    if (a === "export-alerts-json") exportJson("alerts.json", (state.alerts || []).filter(alertMatches));
+    else if (a === "export-alerts-csv") exportCsv("alerts.csv", (state.alerts || []).filter(alertMatches));
+    else if (a === "export-incidents-json") exportJson("incidents.json", state.incidents || []);
+    else if (a === "export-incidents-csv") exportCsv("incidents.csv", state.incidents || []);
+    else if (a === "export-reports-json") exportJson("reports.json", state.reports || []);
+    else if (a === "export-reports-csv") exportCsv("reports.csv", state.reports || []);
   } else if (a === "toggle-autoscroll") {
     state.autoScroll = !state.autoScroll;
     action.textContent = `auto-scroll: ${state.autoScroll ? "on" : "off"}`;
