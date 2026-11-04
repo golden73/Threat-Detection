@@ -32,7 +32,13 @@ analyst reports, and a standalone demo page — all offline-capable.
 ├── step5_hard_eval.py       # Chronological / LOAO / cross-capture eval
 ├── step6_demo_page.py       # Build demo.html
 ├── run_pipeline.py          # One-command runner for steps 1-6
+├── webapp.py                # Local web dashboard (standard library only)
+├── web/                     # Dashboard frontend (no build step)
+│   ├── index.html
+│   ├── style.css
+│   └── app.js
 ├── tests/test_smoke.py      # Structure / compile smoke tests
+├── tests/test_webapp.py     # Dashboard API / HTTP smoke tests
 ├── slides.md                # Presentation outline (12 slides)
 └── requirements.txt         # Python dependencies
 ```
@@ -97,6 +103,48 @@ python step6_demo_page.py
 # Linux: xdg-open outputs/demo.html
 # macOS: open outputs/demo.html
 # Windows: start outputs/demo.html
+```
+
+### 4. Open the dashboard
+
+A local web dashboard turns the pipeline artifacts into a live, navigable view:
+
+```bash
+python3 webapp.py           # http://127.0.0.1:8080
+python3 webapp.py --open    # start and open the browser
+python3 webapp.py --port 9000
+```
+
+It uses only the Python standard library (no Node, no build step, no CDN) and
+reads the files in `outputs/` directly, so it stays fully offline.
+
+| Page | What it shows |
+|------|---------------|
+| **Overview** | KPI cards, dataset composition, confusion matrix, pipeline stage strip, MITRE coverage, recent incidents |
+| **Alerts** | Filterable/searchable alert table; click a row for source, targets, confidence and ATT&CK details |
+| **Incidents** | Multi-stage incident cards; detail view with linked alerts and the AI analyst report |
+| **AI Reports** | Rendered knowledge-base (and LLM, when present) reports per incident |
+| **Evaluation** | Chronological split, leave-one-attack-out bars, cross-capture tables, with/without destination-port toggle |
+| **Pipeline** | Per-stage status and artifacts, plus **Run/Stop** controls and a live streaming console |
+
+The dashboard also detects a pipeline that was started elsewhere (e.g.
+`python run_pipeline.py` in another terminal) and shows it as an external run
+instead of starting a second one.
+
+HTTP API (used by the frontend, handy for scripting):
+
+```
+GET  /api/overview              counts, metrics, pipeline stages
+GET  /api/alerts                alerts.json
+GET  /api/incidents             incidents.json
+GET  /api/incidents/<id>        incident + linked alerts + reports
+GET  /api/reports               report index
+GET  /api/reports/<id>          rendered Markdown source
+GET  /api/hard-eval             hard_eval.json + with-port variant
+GET  /api/pipeline              run state + stage status
+GET  /api/pipeline/log?offset=  incremental pipeline log
+POST /api/pipeline/start        start run_pipeline.py
+POST /api/pipeline/stop         stop a dashboard-started run
 ```
 
 ## Key Features
