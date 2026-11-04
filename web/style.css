@@ -34,31 +34,50 @@
 }
 
 [data-theme="light"] {
-  --bg: #f3f5f9;
-  --bg-soft: #eef1f6;
+  /* Light surfaces, but darker, richer accent colors for contrast */
+  --bg: #eef1f7;
+  --bg-soft: #1e293b;
   --surface: #ffffff;
-  --surface-2: #f6f8fb;
-  --surface-3: #eaeef5;
-  --fg: #101828;
-  --muted: #5a6577;
-  --faint: #7d8797;
-  --border: #dde3ec;
-  --border-soft: #e9edf4;
-  --blue: #2563eb;
-  --blue-soft: rgba(37, 99, 235, .09);
-  --cyan: #0e8f8f;
-  --gold: #9a6b00;
-  --gold-soft: rgba(154, 107, 0, .10);
-  --green: #0f8a5f;
-  --green-soft: rgba(15, 138, 95, .10);
-  --red: #d92d3a;
-  --red-soft: rgba(217, 45, 58, .09);
-  --orange: #c2630a;
-  --orange-soft: rgba(194, 99, 10, .10);
-  --yellow: #8a6d00;
-  --shadow: 0 10px 28px rgba(16, 24, 40, .10);
-  --shadow-sm: 0 1px 2px rgba(16, 24, 40, .07);
+  --surface-2: #f1f5f9;
+  --surface-3: #e2e8f0;
+  --fg: #0f172a;
+  --muted: #475569;
+  --faint: #64748b;
+  --border: #cbd5e1;
+  --border-soft: #e2e8f0;
+  --blue: #1e3a8a;
+  --blue-soft: rgba(30, 58, 138, .10);
+  --cyan: #0f766e;
+  --gold: #92400e;
+  --gold-soft: rgba(146, 64, 14, .10);
+  --green: #166534;
+  --green-soft: rgba(22, 101, 52, .10);
+  --red: #9f1239;
+  --red-soft: rgba(159, 18, 57, .10);
+  --orange: #9a3412;
+  --orange-soft: rgba(154, 52, 18, .10);
+  --yellow: #854d0e;
+  --shadow: 0 10px 28px rgba(15, 23, 42, .12);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, .08);
 }
+/* Sidebar stays dark in light theme for a “dark color” accent */
+[data-theme="light"] .sidebar {
+  background: #0f172a;
+  color: #e2e8f0;
+  border-right-color: #1e293b;
+}
+[data-theme="light"] .sidebar .brand-text small,
+[data-theme="light"] .sidebar .foot-note { color: #94a3b8; }
+[data-theme="light"] .sidebar .nav-item { color: #cbd5e1; }
+[data-theme="light"] .sidebar .nav-item:hover { background: #1e293b; color: #f8fafc; }
+[data-theme="light"] .sidebar .nav-item.active { background: rgba(91, 155, 255, .18); color: #93c5fd; }
+[data-theme="light"] .sidebar .dataset-chip { background: #1e293b; border-color: #334155; }
+[data-theme="light"] .sidebar .dataset-chip b { color: #f1f5f9; }
+[data-theme="light"] .sidebar .mini-link { color: #cbd5e1; }
+[data-theme="light"] .sidebar .nav-count { background: #1e293b; color: #94a3b8; }
+[data-theme="light"] .sidebar .brand-text b { color: #f8fafc; }
+[data-theme="light"] .sidebar .brand-text small { color: #94a3b8; }
+[data-theme="light"] .sidebar .dataset-dot { background: #38bdf8; }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }

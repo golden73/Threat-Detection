@@ -428,8 +428,42 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 offset = 0
             self._json(read_log(offset))
+        elif path == "/api/pipeline/events":
+            self._sse_pipeline()
         else:
             self._error("Unknown endpoint", 404)
+
+    def _sse_pipeline(self) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+        offset = 0
+        try:
+            while True:
+                st = pipeline_status()
+                res = read_log(offset)
+                if res.get("text"):
+                    offset = res["offset"]
+                    self.wfile.write(
+                        ("event: log\ndata: " + json.dumps(res["text"]) + "\n\n").encode("utf-8")
+                    )
+                    self.wfile.flush()
+                self.wfile.write(
+                    ("event: status\ndata: " + json.dumps(st) + "\n\n").encode("utf-8")
+                )
+                self.wfile.flush()
+                if not st.get("running") and st.get("exit_code") is not None:
+                    self.wfile.write(
+                        ("event: done\ndata: " + json.dumps(st) + "\n\n").encode("utf-8")
+                    )
+                    self.wfile.flush()
+                    break
+                time.sleep(1)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
 
     def _static(self, path: str) -> None:
         routes = {
