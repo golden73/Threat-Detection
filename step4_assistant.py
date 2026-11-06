@@ -118,20 +118,30 @@ def offline_report(incident, alerts):
                      f'({a["flows"]:,} flows, {a["target_ports"]} target ports, '
                      f'avg confidence {a["avg_confidence"]:.2f})')
     lines += ["", "## ATT&CK mapping"]
-    seen = []
+    seen, unmapped = [], []
     for a in chain:
         t = a["technique_id"]
         if t not in seen:
             seen.append(t)
-            k = KB[t]
-            lines.append(f'- **{t} {k["name"]}** (tactic: {k["tactic"]}): {k["meaning"]}')
+            if t not in KB:
+                unmapped.append(t)
+                lines.append(f'- **{t} {a["attack_type"]}** (tactic: {a["tactic"]}): '
+                             f'No knowledge-base entry yet; treat as generic detection.')
+            else:
+                k = KB[t]
+                lines.append(f'- **{t} {k["name"]}** (tactic: {k["tactic"]}): {k["meaning"]}')
+    kb_ids = [t for t in seen if t in KB]  # unmapped techniques have no KB guidance
+    if unmapped:
+        lines.append(f'  • UNMAPPED technique IDs with no KB entry: {", ".join(unmapped)}')
     lines += ["", "## Immediate actions"]
-    for t in seen:
+    for t in kb_ids:
         lines += [f"- {s}" for s in KB[t]["immediate"]]
     lines += ["", "## Longer-term fixes"]
-    for t in seen:
+    for t in kb_ids:
         lines += [f"- {s}" for s in KB[t]["longer_term"]]
-    lines += ["", "## ATT&CK mitigations", "- " + "; ".join(m for t in seen for m in KB[t]["mitigations"])]
+    lines += ["", "## ATT&CK mitigations"]
+    mit = "; ".join(m for t in kb_ids for m in KB[t]["mitigations"])
+    lines.append(f"- {mit}" if mit else "- none (no mapped techniques)")
     lines += ["", "## Caveats",
               "- Detections come from an ML model on network flow data; confirm with firewall, "
               "server and authentication logs before concluding compromise.",
