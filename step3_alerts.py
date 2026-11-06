@@ -135,7 +135,76 @@ def build_incidents(alert_recs: list[dict]) -> list[dict]:
     return incidents
 
 
-def main(path: str) -> None:
+def _union_find(n):
+    parent = list(range(n))
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+    return parent, find, union
+
+
+def build_graph_incidents(alert_recs: list[dict], link_gap_minutes: int = 30) -> list[dict]:
+    """Correlate alerts into incidents using a graph (union-find).
+
+    Two alerts are linked when they share a source IP, a target host, or occur
+    within ``link_gap_minutes`` of each other, so distributed/multi-source
+    attacks collapse into a single incident.
+    """
+    n = len(alert_recs)
+    if n == 0:
+        return []
+    parent, find, union = _union_find(n)
+    gap = pd.Timedelta(minutes=link_gap_minutes)
+    order = sorted(range(n), key=lambda i: alert_recs[i]["first_seen"])
+    for i in range(n):
+        a = alert_recs[order[i]]
+        for j in range(i + 1, n):
+            b = alert_recs[order[j]]
+            if pd.Timestamp(b["first_seen"]) - pd.Timestamp(a["last_seen"]) > gap:
+                break
+            if (a["source_ip"] == b["source_ip"]
+                    or a["top_target"] == b["top_target"]):
+                union(order[i], order[j])
+
+    groups: dict[int, list[int]] = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+
+    incidents = []
+    for members in groups.values():
+        chain = sorted((alert_recs[i] for i in members), key=lambda a: a["first_seen"])
+        tactics = list(dict.fromkeys(a["tactic"] for a in chain))
+        sev = max((a["severity"] for a in chain), key=SEV_ORDER.index)
+        known = [t for t in tactics if t != UNMAPPED_TACTIC]
+        if len(known) >= 2:
+            sev = "critical"
+        steps = " -> ".join(dict.fromkeys(
+            f'{a["attack_type"]} ({a["technique_id"]})' for a in chain))
+        incidents.append({
+            "source_ips": sorted({a["source_ip"] for a in chain}),
+            "first_seen": chain[0]["first_seen"],
+            "last_seen": max(a["last_seen"] for a in chain),
+            "alert_ids": [a["alert_id"] for a in chain],
+            "tactics": tactics,
+            "techniques": [a["technique_id"] for a in chain],
+            "total_flows": sum(a["flows"] for a in chain),
+            "targets": sorted({a["top_target"] for a in chain}),
+            "severity": sev,
+            "summary": f"graph incident: {steps}",
+        })
+    incidents.sort(key=lambda i: i["first_seen"])
+    for n, inc in enumerate(incidents, 1):
+        inc["incident_id"] = f"GINC-{n:03d}"
+    return incidents
+
+
+def main(path: str, graph: bool = False) -> None:
     df = pd.read_csv(path, low_memory=False)
     alerts = build_alerts(df)
     alert_recs = alerts_to_records(alerts)
@@ -160,7 +229,27 @@ def main(path: str) -> None:
     print("\nIncidents:")
     for i in incidents:
         print(f'  {i["incident_id"]}  [{i["severity"].upper()}]  {i["summary"]}')
-    print("\nsaved outputs/alerts.json and outputs/incidents.json")
+
+    if graph:
+        g_incidents = build_graph_incidents(alert_recs)
+        with open("outputs/incidents_graph.json", "w") as f:
+            json.dump(g_incidents, f, indent=2)
+        print(f"\ngraph correlation: {len(g_incidents)} graph incidents -> outputs/incidents_graph.json")
+        for i in g_incidents:
+            print(f'  {i["incident_id"]}  [{i["severity"].upper()}]  sources={i["source_ips"]} '
+                  f'alerts={len(i["alert_ids"])} flows={i["total_flows"]:,}')
+
+    print("\nsaved outputs/alerts.json and outputs/incidents.json" + (" (+ incidents_graph.json)" if graph else ""))
+
+
+if __name__ == "__main__":
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("path", nargs="?", default="outputs/predictions.csv")
+    ap.add_argument("--graph", action="store_true",
+                    help="also run graph-based correlation -> outputs/incidents_graph.json")
+    a = ap.parse_args()
+    main(a.path, a.graph)
 
 
 if __name__ == "__main__":
