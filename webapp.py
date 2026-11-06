@@ -252,7 +252,6 @@ def start_pipeline() -> tuple[bool, str]:
 
 
 def stop_pipeline() -> tuple[bool, str]:
-    global _proc
     with _proc_lock:
         if not _pipeline_running():
             return False, "No pipeline started from the dashboard is running."
