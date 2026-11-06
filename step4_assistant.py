@@ -172,6 +172,8 @@ def main():
     ap.add_argument("--incident")
     ap.add_argument("--mode", choices=["auto", "llm", "offline"], default="auto")
     ap.add_argument("--ask")
+    ap.add_argument("--rag", action="store_true",
+                    help="augment the offline report with passages retrieved from a local corpus (RAG)")
     args = ap.parse_args()
 
     incidents, alerts = load()
@@ -199,9 +201,24 @@ def main():
     else:
         text = offline_report(inc, alerts)
 
+    if args.rag and mode != "llm":
+        try:
+            from rag import RagIndex
+            idx = RagIndex.from_paths(["writeups", "README.md", "data/README.md"])
+            hits = idx.retrieve(f"{inc['summary']} " + " ".join(inc.get('tactics', [])), k=4)
+            text += "\n\n## Retrieved context (RAG)\n"
+            if not hits:
+                text += "- No relevant passages found in the local corpus.\n"
+            else:
+                for chunk, score in hits:
+                    text += f"- (score {score:.2f}) {chunk[:280].replace(chr(10), ' ')}\n"
+        except Exception as e:
+            text += f"\n\n## Retrieved context (RAG)\n- RAG unavailable: {e}\n"
+
     print(text)
     Path("outputs/reports").mkdir(parents=True, exist_ok=True)
-    out = Path("outputs/reports") / f'{inc["incident_id"]}_{mode}.md'
+    suffix = "rag" if args.rag and mode != "llm" else mode
+    out = Path("outputs/reports") / f'{inc["incident_id"]}_{suffix}.md'
     out.write_text(text, encoding="utf-8")
     print(f"\nsaved {out}")
 
