@@ -14,8 +14,20 @@ import pandas as pd
 
 
 def load_all(raw_dir: Path) -> pd.DataFrame:
+    # README layout: data/raw/<MachineLearningCVE|TrafficLabelling>/*.csv. The
+    # two labelling variants are the same flows with different cleaning, so only
+    # one is needed — prefer MachineLearningCVE when both are present.
+    files = sorted((raw_dir / "MachineLearningCVE").glob("*.csv"))
+    if not files:
+        files = sorted((raw_dir / "TrafficLabelling").glob("*.csv"))
+    if not files:
+        files = sorted(raw_dir.glob("*.csv"))  # flat layout, e.g. data/raw/*.csv
+    if not files:
+        sys.exit(f"No CSV files found in {raw_dir} "
+                 f"(expected a MachineLearningCVE or TrafficLabelling subdir, "
+                 f"or top-level CSVs; see data/README.md)")
     frames = []
-    for f in sorted(raw_dir.glob("*.csv")):
+    for f in files:
         df = pd.read_csv(f, encoding="latin-1", low_memory=False)
         df.columns = df.columns.str.strip()  # headers have stray spaces
         df["source_file"] = f.name           # keeps day/attack context

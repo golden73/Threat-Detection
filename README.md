@@ -39,7 +39,6 @@ analyst reports, and a standalone demo page — all offline-capable.
 │   └── app.js
 ├── tests/test_smoke.py      # Structure / compile smoke tests
 ├── tests/test_webapp.py     # Dashboard API / HTTP smoke tests
-├── slides.md                # Presentation outline (12 slides)
 └── requirements.txt         # Python dependencies
 ```
 
