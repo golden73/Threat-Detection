@@ -86,6 +86,12 @@ STEPS = [
         "detail": "Standalone one-file HTML report",
         "artifacts": ["outputs/demo.html"],
     },
+    {
+        "id": "step7",
+        "label": "Anomaly layer",
+        "detail": "IsolationForest on benign traffic, fused with XGBoost",
+        "artifacts": ["outputs/anomaly_metrics.json", "models/anomaly_iforest.joblib"],
+    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -290,6 +296,7 @@ def build_overview() -> dict:
     metrics = _json_load("outputs/metrics.json", {})
     metrics_port = _json_load("outputs/metrics_with_port.json", {})
     hard = _json_load("outputs/hard_eval.json", {})
+    anomaly = _json_load("outputs/anomaly_metrics.json", {})
     alerts = _json_load("outputs/alerts.json", [])
     incidents = _json_load("outputs/incidents.json", [])
     reports = list_reports()
@@ -302,6 +309,11 @@ def build_overview() -> dict:
         "dataset": check,
         "metrics": metrics,
         "metrics_with_port": metrics_port,
+        "anomaly": {
+            "fused": anomaly.get("fused", {}),
+            "isolation_forest_only": anomaly.get("isolation_forest_only", {}),
+            "cross_capture_anomaly": anomaly.get("cross_capture_anomaly", {}),
+        },
         "counts": {
             "alerts": len(alerts),
             "incidents": len(incidents),

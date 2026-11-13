@@ -31,12 +31,16 @@ analyst reports, and a standalone demo page — all offline-capable.
 ├── step4_assistant.py       # AI SOC assistant (LLM or offline KB)
 ├── step5_hard_eval.py       # Chronological / LOAO / cross-capture eval
 ├── step6_demo_page.py       # Build demo.html
-├── run_pipeline.py          # One-command runner for steps 1-6
+├── step7_anomaly.py         # Unsupervised anomaly layer (IsolationForest) + fusion
+├── run_pipeline.py          # One-command runner for steps 1-7
 ├── webapp.py                # Local web dashboard (standard library only)
 ├── web/                     # Dashboard frontend (no build step)
 │   ├── index.html
 │   ├── style.css
 │   └── app.js
+├── scripts/                 # Dev utilities
+│   ├── make_sample_data.py  # Synthetic CICIDS-like CSVs for CI / smoke tests
+│   └── validate_outputs.py  # Assert output artifacts exist & are well-formed
 ├── tests/test_smoke.py      # Structure / compile smoke tests
 ├── tests/test_webapp.py     # Dashboard API / HTTP smoke tests
 └── requirements.txt         # Python dependencies

@@ -326,6 +326,35 @@ async function viewOverview() {
     </p>
   </section>`;
 
+  const anomaly = d.anomaly || {};
+  const fused = anomaly.fused || {};
+  const iso = anomaly.isolation_forest_only || {};
+  const ccAnom = anomaly.cross_capture_anomaly || {};
+  const anomalyPanel = Object.keys(fused).length ? `<section class="panel">
+    <div class="panel-head"><span class="dot"></span><h2>Anomaly layer</h2>
+      <span class="hint">IsolationForest · fused with XGBoost</span></div>
+    ${metricRow("XGBoost F1", (d.metrics || {}).f1, "green")}
+    ${metricRow("Fused F1", fused.f1, "gold")}
+    ${metricRow("Fused FPR", fused.fpr, "gold")}
+    <div class="metric-row">
+      <span class="m-label">Anomaly layer alone</span>
+      <span class="m-val">R ${pct(iso.recall)} · FPR ${pct4(iso.fpr)}</span>
+    </div>
+    ${Object.keys(ccAnom).length ? `<details style="margin-top:10px">
+      <summary class="faint" style="cursor:pointer;font-size:12px">Unseen-capture anomaly recall (${Object.keys(ccAnom).length} captures)</summary>
+      <table>
+        <thead><tr><th>Capture</th><th class="num">Attack recall</th><th class="num">Benign FPR</th></tr></thead>
+        <tbody>${Object.entries(ccAnom).map(([f, v]) => `<tr>
+          <td class="mono">${esc(f.replace(/\.pcap_ISCX\.csv$/, ""))}</td>
+          <td class="num">${pct(v.unseen_capture_attack_recall)}</td>
+          <td class="num">${pct4(v.benign_fpr)}</td></tr>`).join("")}</tbody>
+      </table>
+    </details>` : ""}
+    <p class="faint" style="font-size:11.5px;margin-top:8px">
+      Fused = XGBoost alert OR anomaly flag. See the hard-evaluation page for why the anomaly layer matters.
+    </p>
+  </section>` : "";
+
   const matrixPanel = `<section class="panel">
     <div class="panel-head"><span class="dot"></span><h2>Confusion matrix</h2>
       <span class="hint">all ${num(tp + fp + fn + tn)} flows</span></div>
@@ -395,7 +424,8 @@ async function viewOverview() {
     `<span class="chip green">Updated ${new Date(d.generated_at).toLocaleTimeString()}</span>`)}
     ${kpis}${strip}
     <div class="grid two mb">${compositionPanel}${qualityPanel}</div>
-    <div class="grid two mb">${matrixPanel}${mitrePanel}</div>
+    <div class="grid two mb">${matrixPanel}${anomalyPanel || mitrePanel}</div>
+    ${anomalyPanel ? `<div class="grid mb">${mitrePanel}</div>` : ""}
     ${incidentsPanel}`;
 }
 

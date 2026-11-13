@@ -71,6 +71,12 @@ def main():
     # Step 6: demo page.
     run([PY, "step6_demo_page.py"], "Step 6: Build demo page")
 
+    # Step 7: unsupervised anomaly layer fused with XGBoost (optional but
+    # included: it is the only defense against attacks the supervised model
+    # has never seen — see the leave-one-attack-out numbers).
+    run([PY, "step7_anomaly.py", "data/clean.csv"],
+        "Step 7: Anomaly layer (IsolationForest) + fusion")
+
     print(f"\n{'=' * 60}")
     print("Pipeline completed successfully!")
     print(f"{'=' * 60}")
@@ -82,6 +88,7 @@ def main():
     print("  - outputs/incidents.json")
     print("  - outputs/hard_eval.json")
     print("  - outputs/hard_eval_with_port.json")
+    print("  - outputs/anomaly_metrics.json")
     print("  - outputs/demo.html")
     print("  - outputs/reports/*.md")
     print("\nOpen outputs/demo.html in your browser to view the demo.")

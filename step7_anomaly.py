@@ -134,6 +134,47 @@ def main():
     Path("outputs/anomaly_metrics.json").write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))
 
+    # ------------------------------------------------------------------
+    # Cross-capture anomaly evaluation: for each capture day, train the
+    # IsolationForest on benign flows from the OTHER days only, then score
+    # the held-out day. This measures whether the unsupervised layer
+    # generalises to unseen captures — the scenario where XGBoost fails
+    # (cross-capture recall 0.04%-4%).
+    # ------------------------------------------------------------------
+    if "source_file" not in df.columns:
+        print("no source_file column; skipping cross-capture anomaly eval")
+        return
+
+    files = sorted(df["source_file"].unique())
+    x_cc = X.reset_index(drop=True)
+    src = df["source_file"].reset_index(drop=True).to_numpy()
+    yy = pd.Series(y).reset_index(drop=True).to_numpy()
+    cc_report = {}
+    print(f"\nCross-capture anomaly eval over {len(files)} captures...")
+    for held in files:
+        tr_mask, te_mask = src != held, src == held
+        if tr_mask.sum() == 0 or te_mask.sum() == 0:
+            continue
+        tr_idx = np.where(tr_mask & (yy == 0))[0]
+        tr_idx = rng.choice(tr_idx, size=min(args.benign_cap, len(tr_idx)), replace=False)
+        iso_cc = IsolationForest(n_estimators=200, contamination=args.contamination,
+                                 random_state=SEED, n_jobs=-1)
+        iso_cc.fit(x_cc.iloc[tr_idx])
+        raw_cc = -iso_cc.score_samples(x_cc[te_mask])
+        lo, hi = raw_cc.min(), raw_cc.max()
+        anom_cc = (raw_cc - lo) / (hi - lo + 1e-12)
+        pred_cc = (anom_cc >= threshold).astype(int)  # threshold from benign-only fit above
+        te_y = yy[te_mask]
+        recall = float(pred_cc[te_y == 1].mean()) if (te_y == 1).any() else 0.0
+        fpr = float(pred_cc[te_y == 0].mean()) if (te_y == 0).any() else 0.0
+        cc_report[held] = {"unseen_capture_attack_recall": recall,
+                           "benign_fpr": fpr,
+                           "attack_flows": int((te_y == 1).sum())}
+        print(f"  {held}: recall={recall:.4f} fpr={fpr:.4f}")
+    report["cross_capture_anomaly"] = cc_report
+    Path("outputs/anomaly_metrics.json").write_text(json.dumps(report, indent=2))
+    print("\nCross-capture anomaly section appended to outputs/anomaly_metrics.json")
+
 
 if __name__ == "__main__":
     main()
