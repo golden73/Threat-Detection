@@ -54,7 +54,17 @@ pip install -r requirements.txt
 
 ### 2. Get Data
 
-Download CICIDS2017 "MachineLearningCVE" CSVs and place in `data/raw/`:
+Download CICIDS2017 "MachineLearningCVE" CSVs and place in `data/raw/` (see
+`data/README.md` for sources: the official UNB page, a Kaggle mirror, and a
+Hugging Face mirror). Verify your downloads against `CHECKSUMS.sha256`:
+
+```bash
+sha256sum --check CHECKSUMS.sha256        # if raw CSVs live in data/raw/
+# or: (cd data && sha256sum --check ../CHECKSUMS.sha256) — adjust paths as needed
+```
+
+The checksums were computed from the `MachineLearningCVE` and
+`TrafficLabelling` variants; both are accepted by the loader, you only need one.
 - Tuesday-WorkingHours.pcap_ISCX.csv
 - Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv
 - Friday-WorkingHours-Afternoon-DDoS.pcap_ISCX.csv
