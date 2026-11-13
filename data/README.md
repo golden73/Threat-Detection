@@ -52,7 +52,7 @@ python step5_hard_eval.py data/clean.csv            # chronological / LOAO / cro
 python step6_demo_page.py                           # outputs/demo.html
 ```
 
-Or run the whole pipeline (steps 1-6) with `python run_pipeline.py`.
+Or run the whole pipeline (steps 1-7) with `python run_pipeline.py`.
 
 `outputs/predictions.csv` and `outputs/demo.pdf` are ignored for the same size
 reasons; everything else under `outputs/` is committed so the README numbers
