@@ -155,7 +155,7 @@ def main():
         parts.append("<h4>Leave-one-attack-out (attack type never seen in training)</h4>"
                      "<table><tr><th>Held-out attack</th><th>Detected when unseen</th><th>Benign FPR</th></tr>"
                      f"{rows}</table><p class='note'>Limitation: the supervised model is strong on known attacks "
-                     "but weak on unseen ones. Future work: add an anomaly-detection layer.</p>")
+                     "but weak on unseen ones — which is why the anomaly layer (section 2b) exists.</p>")
     cc = hard.get("cross_capture")
     if cc:
         blocks = []
@@ -172,6 +172,34 @@ def main():
                      "<p class='note'>'NOT TESTED' = class absent from training: a real zero-shot "
                      "test. These recall values are much lower, which is expected.</p>"
                      + "".join(blocks))
+
+    # 2b. Anomaly layer (IsolationForest fused with XGBoost)
+    anomaly = jload("anomaly_metrics.json", {})
+    if anomaly:
+        fused, iso = anomaly.get("fused", {}), anomaly.get("isolation_forest_only", {})
+        parts.append("<h4>2b. Anomaly layer — IsolationForest fused with XGBoost</h4>")
+        if fused:
+            parts.append(
+                "<table><tr><th>Layer</th><th>Precision</th><th>Recall</th><th>FPR</th></tr>"
+                f"<tr><td>XGBoost only</td><td>{pct(metrics['precision'])}</td><td>{pct(metrics['recall'])}</td>"
+                f"<td>{metrics['false_positive_rate'] * 100:.4f}%</td></tr>"
+                f"<tr><td>IsolationForest only</td><td>{pct(iso.get('precision', 0))}</td>"
+                f"<td>{pct(iso.get('recall', 0))}</td><td>{iso.get('fpr', 0) * 100:.4f}%</td></tr>"
+                f"<tr><td>Fused (OR)</td><td>{pct(fused.get('precision', 0))}</td>"
+                f"<td>{pct(fused.get('recall', 0))}</td><td>{fused.get('fpr', 0) * 100:.4f}%</td></tr></table>")
+        cc_anom = anomaly.get("cross_capture_anomaly", {})
+        if cc_anom:
+            rows = "".join(
+                f"<tr><td>{html.escape(f.replace('.pcap_ISCX.csv', ''))}</td>"
+                f"<td>{pct(v['unseen_capture_attack_recall'])}</td>"
+                f"<td>{v['benign_fpr'] * 100:.4f}%</td></tr>"
+                for f, v in cc_anom.items())
+            parts.append("<table><tr><th>Held-out capture (anomaly layer)</th><th>Attack recall</th>"
+                         f"<th>Benign FPR</th></tr>{rows}</table>"
+                         "<p class='note'>Honest result: the unsupervised layer helps on one capture "
+                         "(DDoS, 13.4% recall vs 0.25% for XGBoost) but at a high benign FPR, and does "
+                         "not generalise to the others. Future work: shift-robust features and "
+                         "per-capture threshold calibration.</p>")
 
     # 3. Alerts
     rows = "".join(

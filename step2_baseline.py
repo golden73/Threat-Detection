@@ -78,7 +78,8 @@ def binary_metrics(y_true: np.ndarray, pred: np.ndarray, benign_code: int) -> di
             "false_positive_rate": fpr, "tp": tp, "fp": fp, "fn": fn, "tn": tn}
 
 
-def main(path: str, folds: int, with_port: bool) -> None:
+def main(path: str, folds: int, with_port: bool, out_dir: str = "outputs",
+         model_dir: str = "models") -> None:
     df = pd.read_csv(path, low_memory=False)
     df["Label"] = df["Label"].str.strip()
 
@@ -124,27 +125,36 @@ def main(path: str, folds: int, with_port: bool) -> None:
     print("\n=== Binary (attack vs benign) ===")
     print(json.dumps(metrics, indent=2))
 
-    Path("outputs").mkdir(exist_ok=True)
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
     if with_port:
-        json.dump(metrics, open("outputs/metrics_with_port.json", "w"), indent=2)
-        print("\ncomparison run only: saved outputs/metrics_with_port.json "
+        json.dump(metrics, open(f"{out_dir}/metrics_with_port.json", "w"), indent=2)
+        print(f"\ncomparison run only: saved {out_dir}/metrics_with_port.json "
               "(model and predictions NOT overwritten)")
         return
 
+    # Guard against accidental clobbering: dev/smoke runs on a different input
+    # (e.g. the CI synthetic dataset) must not overwrite the real artifacts.
+    m = Path(out_dir) / "metrics.json"
+    if str(path) != "data/clean.csv" and m.exists() and out_dir == "outputs":
+        raise SystemExit(
+            f"refusing to overwrite {m} while running on '{path}'.\n"
+            "Point the run elsewhere instead: --out-dir /tmp/smoke/outputs "
+            "--model-dir /tmp/smoke/models")
+
     # Final model on all flows, plus artifacts for the later steps
-    Path("models").mkdir(exist_ok=True)
+    Path(model_dir).mkdir(parents=True, exist_ok=True)
     final_model, n_final = train_model(X, y, np.arange(len(df)), benign_code)
     print(f"\nfinal model trained on {n_final:,} flows")
-    final_model.save_model("models/xgb.json")
-    json.dump(list(le.classes_), open("models/classes.json", "w"))
-    json.dump(metrics, open("outputs/metrics.json", "w"), indent=2)
+    final_model.save_model(f"{model_dir}/xgb.json")
+    json.dump(list(le.classes_), open(f"{model_dir}/classes.json", "w"))
+    json.dump(metrics, open(f"{out_dir}/metrics.json", "w"), indent=2)
 
     # Destination Port is kept here for reporting only; it was NOT a model feature.
     out = df[["Flow ID", "Source IP", "Destination IP", "Destination Port", "Timestamp", "Label"]].copy()
     out["predicted"] = le.inverse_transform(pred)
     out["confidence"] = proba.max(axis=1).round(4)
-    out.to_csv("outputs/predictions.csv", index=False)
-    print("saved model, metrics and outputs/predictions.csv (all flows)")
+    out.to_csv(f"{out_dir}/predictions.csv", index=False)
+    print(f"saved model, metrics and {out_dir}/predictions.csv (all flows)")
 
 
 if __name__ == "__main__":
@@ -153,5 +163,9 @@ if __name__ == "__main__":
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--with-dest-port", action="store_true",
                     help="comparison run: include Destination Port as a feature")
+    ap.add_argument("--out-dir", default="outputs",
+                    help="where to write metrics.json / predictions.csv")
+    ap.add_argument("--model-dir", default="models",
+                    help="where to write xgb.json / classes.json")
     a = ap.parse_args()
-    main(a.path, a.folds, a.with_dest_port)
+    main(a.path, a.folds, a.with_dest_port, a.out_dir, a.model_dir)

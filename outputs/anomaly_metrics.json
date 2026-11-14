@@ -35,18 +35,18 @@
   "note": "Unsupervised layer flags flows unlike benign traffic; fused = OR of the two.",
   "cross_capture_anomaly": {
     "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv": {
-      "unseen_capture_attack_recall": 0.10762741652021089,
-      "benign_fpr": 0.09317800253879857,
+      "unseen_capture_attack_recall": 0.1341144307752392,
+      "benign_fpr": 0.09493878219565129,
       "attack_flows": 128025
     },
     "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv": {
-      "unseen_capture_attack_recall": 9.445605904133397e-05,
-      "benign_fpr": 0.007376798045423479,
+      "unseen_capture_attack_recall": 0.0,
+      "benign_fpr": 0.0045172086007651754,
       "attack_flows": 158804
     },
     "Tuesday-WorkingHours.pcap_ISCX.csv": {
       "unseen_capture_attack_recall": 0.0,
-      "benign_fpr": 0.006609403694689087,
+      "benign_fpr": 0.00678772327580018,
       "attack_flows": 13832
     }
   }
