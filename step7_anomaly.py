@@ -163,7 +163,13 @@ def main():
         raw_cc = -iso_cc.score_samples(x_cc[te_mask])
         lo, hi = raw_cc.min(), raw_cc.max()
         anom_cc = (raw_cc - lo) / (hi - lo + 1e-12)
-        pred_cc = (anom_cc >= threshold).astype(int)  # threshold from benign-only fit above
+        # threshold must come from TRAINING benign only, never the held-out
+        # day's benign traffic (would leak distribution info into the FPR)
+        raw_tr = -iso_cc.score_samples(x_cc.iloc[tr_idx])
+        lo_tr, hi_tr = raw_tr.min(), raw_tr.max()
+        anom_tr = (raw_tr - lo_tr) / (hi_tr - lo_tr + 1e-12)
+        thr_cc = float(np.quantile(anom_tr, 1 - args.contamination))
+        pred_cc = (anom_cc >= thr_cc).astype(int)
         te_y = yy[te_mask]
         recall = float(pred_cc[te_y == 1].mean()) if (te_y == 1).any() else 0.0
         fpr = float(pred_cc[te_y == 0].mean()) if (te_y == 0).any() else 0.0

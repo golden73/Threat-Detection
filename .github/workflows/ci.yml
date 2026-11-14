@@ -60,10 +60,10 @@ jobs:
         run: python step1_load_clean.py ci_data/raw ci_data/clean.csv
 
       - name: Step 2 - XGBoost baseline (2-fold)
-        run: python step2_baseline.py ci_data/clean.csv --folds 2
+        run: python step2_baseline.py ci_data/clean.csv --folds 2 --out-dir ci_outputs --model-dir ci_models
 
       - name: Step 3 - alerts & ATT&CK correlation
-        run: python step3_alerts.py outputs/predictions.csv
+        run: python step3_alerts.py ci_outputs/predictions.csv --out-dir ci_outputs
 
       - name: Validate output artifacts
         run: python scripts/validate_outputs.py

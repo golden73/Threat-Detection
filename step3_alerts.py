@@ -204,7 +204,7 @@ def build_graph_incidents(alert_recs: list[dict], link_gap_minutes: int = 30) ->
     return incidents
 
 
-def main(path: str, graph: bool = False) -> None:
+def main(path: str, graph: bool = False, out_dir: str = "outputs") -> None:
     df = pd.read_csv(path, low_memory=False)
     alerts = build_alerts(df)
     alert_recs = alerts_to_records(alerts)
@@ -215,10 +215,18 @@ def main(path: str, graph: bool = False) -> None:
         print(f"WARNING: no ATT&CK mapping for {unmapped}. Add them to MITRE in this file "
               f"(and to the knowledge base in step 4) to get proper reports.\n")
 
-    Path("outputs").mkdir(exist_ok=True)
-    with open("outputs/alerts.json", "w") as f:
+    # Guard against accidental clobbering of the real committed artifacts by
+    # dev/smoke runs on a different predictions file.
+    a_json = Path(out_dir) / "alerts.json"
+    if str(path) != "outputs/predictions.csv" and a_json.exists() and out_dir == "outputs":
+        raise SystemExit(
+            f"refusing to overwrite {a_json} while reading '{path}'.\n"
+            "Point the run elsewhere instead: --out-dir /tmp/smoke/outputs")
+
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    with open(a_json, "w") as f:
         json.dump(alert_recs, f, indent=2)
-    with open("outputs/incidents.json", "w") as f:
+    with open(Path(out_dir) / "incidents.json", "w") as f:
         json.dump(incidents, f, indent=2)
 
     print(f"{len(alert_recs)} alerts -> {len(incidents)} incidents\n")
@@ -232,14 +240,14 @@ def main(path: str, graph: bool = False) -> None:
 
     if graph:
         g_incidents = build_graph_incidents(alert_recs)
-        with open("outputs/incidents_graph.json", "w") as f:
+        with open(Path(out_dir) / "incidents_graph.json", "w") as f:
             json.dump(g_incidents, f, indent=2)
-        print(f"\ngraph correlation: {len(g_incidents)} graph incidents -> outputs/incidents_graph.json")
+        print(f"\ngraph correlation: {len(g_incidents)} graph incidents -> {out_dir}/incidents_graph.json")
         for i in g_incidents:
             print(f'  {i["incident_id"]}  [{i["severity"].upper()}]  sources={i["source_ips"]} '
                   f'alerts={len(i["alert_ids"])} flows={i["total_flows"]:,}')
 
-    print("\nsaved outputs/alerts.json and outputs/incidents.json" + (" (+ incidents_graph.json)" if graph else ""))
+    print(f"\nsaved {out_dir}/alerts.json and {out_dir}/incidents.json" + (" (+ incidents_graph.json)" if graph else ""))
 
 
 if __name__ == "__main__":
@@ -248,9 +256,7 @@ if __name__ == "__main__":
     ap.add_argument("path", nargs="?", default="outputs/predictions.csv")
     ap.add_argument("--graph", action="store_true",
                     help="also run graph-based correlation -> outputs/incidents_graph.json")
+    ap.add_argument("--out-dir", default="outputs",
+                    help="where to write alerts.json / incidents.json")
     a = ap.parse_args()
-    main(a.path, a.graph)
-
-
-if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "outputs/predictions.csv")
+    main(a.path, a.graph, a.out_dir)
