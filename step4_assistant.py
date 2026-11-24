@@ -5,15 +5,16 @@ Reads outputs/incidents.json + outputs/alerts.json and produces an analyst-style
 report for an incident: what happened, ATT&CK mapping, and response steps for a
 small IT team in Lusaka, Zambia.
 
-Two modes:
-  llm      uses the Anthropic API (needs: pip install anthropic, env var ANTHROPIC_API_KEY)
+Modes:
+  llm      uses a hosted LLM (Anthropic, Gemini, OpenRouter or Groq)
   offline  deterministic knowledge-base report, no internet or key needed (demo-safe)
-  auto     llm if a key is available, otherwise offline  (default)
+  auto     llm if any provider key is available, otherwise offline  (default)
 
 Usage:
-    python step4_assistant.py                      # explain the most severe incident
+    python step4_assistant.py                       # explain the most severe incident
     python step4_assistant.py --incident INC-003
     python step4_assistant.py --incident INC-003 --mode offline
+    python step4_assistant.py --incident INC-003 --provider gemini
     python step4_assistant.py --ask "Which incident should I handle first and why?"
 """
 import argparse
@@ -21,7 +22,8 @@ import json
 import os
 from pathlib import Path
 
-MODEL = os.environ.get("ASSISTANT_MODEL", "claude-sonnet-5-5")
+import llm_providers
+
 SEV_ORDER = ["low", "medium", "high", "critical"]
 
 # ---- ATT&CK knowledge base (what the assistant is grounded on) -------------
@@ -149,28 +151,67 @@ def offline_report(incident, alerts):
     return "\n".join(lines)
 
 
-def llm_call(user_content):
-    import anthropic
-    client = anthropic.Anthropic()
-    resp = client.messages.create(model=MODEL, max_tokens=1200, system=SYSTEM_PROMPT,
-                                  messages=[{"role": "user", "content": user_content}])
-    return "".join(b.text for b in resp.content if b.type == "text")
+def llm_call(user_content, provider=None, model=None, key=None):
+    """Call one hosted provider with the SOC system prompt."""
+    provider = provider or os.environ.get("LLM_PROVIDER") or llm_providers.ORDER[0]
+    model = model or os.environ.get("LLM_MODEL")
+    return llm_providers.call(provider, model, key or llm_providers.api_key(provider),
+                              SYSTEM_PROMPT, user_content)
 
 
-def llm_available():
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        return False
+def llm_available(provider=None, key=None) -> bool:
+    if provider:
+        return llm_providers.configured(provider, key)
+    return llm_providers.available(key, provider) is not None
+
+
+def make_report(incident, alerts, mode="auto", provider=None, model=None,
+                key=None) -> tuple[str, str]:
+    """Return (effective_mode, markdown) for one incident.
+
+    Used by both the CLI and the live engine. If an LLM call fails (bad key,
+    quota, network), fall back to the offline report and say so in the output —
+    a live feed should never stall just because the API is unavailable.
+    """
+    provider = provider or os.environ.get("LLM_PROVIDER")
+    if mode == "auto":
+        chosen = llm_providers.available(key, provider)
+        mode = "llm" if chosen else "offline"
+        provider = chosen or provider
+    if mode != "llm":
+        return "offline", offline_report(incident, alerts)
+
+    provider = provider or llm_providers.ORDER[0]
+    model = model or llm_providers.default_model(provider)
     try:
-        import anthropic  # noqa: F401
-        return True
-    except ImportError:
-        return False
+        ctx = context_for(incident, alerts)
+        text = llm_call(f"Explain this incident:\n{json.dumps(ctx, indent=1)}",
+                        provider=provider, model=model, key=key)
+        return "llm", text
+    except Exception as exc:
+        text = offline_report(incident, alerts)
+        text += (f"\n\n## LLM unavailable\n- {llm_providers.PROVIDERS[provider]['label']} "
+                 f"({model}) failed, so this report fell back to the offline knowledge base: "
+                 f"{type(exc).__name__}: {exc}\n")
+        return "offline", text
+
+
+def save_report(incident_id: str, mode: str, text: str) -> Path:
+    """Write a report where the dashboard's /api/reports endpoints can find it."""
+    folder = Path("outputs/reports")
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{incident_id}_{mode}.md"
+    path.write_text(text, encoding="utf-8")
+    return path
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--incident")
     ap.add_argument("--mode", choices=["auto", "llm", "offline"], default="auto")
+    ap.add_argument("--provider", choices=list(llm_providers.ORDER),
+                    help="LLM provider (default: first configured, or gemini)")
+    ap.add_argument("--model", help="model ID override for the chosen provider")
     ap.add_argument("--ask")
     ap.add_argument("--rag", action="store_true",
                     help="augment the offline report with passages retrieved from a local corpus (RAG)")
@@ -178,15 +219,21 @@ def main():
 
     incidents, alerts = load()
     mode = args.mode
+    provider = args.provider or os.environ.get("LLM_PROVIDER")
     if mode == "auto":
-        mode = "llm" if llm_available() else "offline"
-    print(f"[mode: {mode}]\n")
+        chosen = llm_providers.available(override_provider=provider)
+        mode = "llm" if chosen else "offline"
+        provider = chosen or provider
+    print(f"[mode: {mode}" + (f" · provider: {provider}" if mode == "llm" and provider else "") + "]\n")
 
     if args.ask:
         if mode != "llm":
-            raise SystemExit("--ask needs LLM mode (set ANTHROPIC_API_KEY and pip install anthropic).")
+            raise SystemExit("--ask needs an LLM key. Set one of: " +
+                             ", ".join(llm_providers.PROVIDERS[p]["env"]
+                                       for p in llm_providers.ORDER))
         ctx = [context_for(i, alerts) for i in incidents]
-        print(llm_call(f"Incidents and knowledge:\n{json.dumps(ctx, indent=1)}\n\nQuestion: {args.ask}"))
+        print(llm_call(f"Incidents and knowledge:\n{json.dumps(ctx, indent=1)}\n\nQuestion: {args.ask}",
+                       provider=provider, model=args.model))
         return
 
     if args.incident:
@@ -196,12 +243,9 @@ def main():
     else:
         inc = max(incidents, key=lambda i: SEV_ORDER.index(i["severity"]))
 
-    if mode == "llm":
-        text = llm_call(f"Explain this incident:\n{json.dumps(context_for(inc, alerts), indent=1)}")
-    else:
-        text = offline_report(inc, alerts)
+    effective, text = make_report(inc, alerts, mode, provider=provider, model=args.model)
 
-    if args.rag and mode != "llm":
+    if args.rag and effective != "llm":
         try:
             from rag import RagIndex
             idx = RagIndex.from_paths(["writeups", "README.md", "data/README.md"])
@@ -216,10 +260,8 @@ def main():
             text += f"\n\n## Retrieved context (RAG)\n- RAG unavailable: {e}\n"
 
     print(text)
-    Path("outputs/reports").mkdir(parents=True, exist_ok=True)
-    suffix = "rag" if args.rag and mode != "llm" else mode
-    out = Path("outputs/reports") / f'{inc["incident_id"]}_{suffix}.md'
-    out.write_text(text, encoding="utf-8")
+    suffix = ("rag" if args.rag else "offline") if effective != "llm" else (provider or "llm")
+    out = save_report(inc["incident_id"], suffix, text)
     print(f"\nsaved {out}")
 
 

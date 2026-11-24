@@ -67,6 +67,11 @@ const state = {
   statusTimer: null,
   autoScroll: true,
   drawerAlert: null,
+  live: null,
+  liveFeedOffset: 0,
+  liveLogOffset: 0,
+  liveConfig: { source: "replay", rate: 10, count: 0, interface: "eth0", aiMode: "auto",
+                provider: "auto", model: "" },
 };
 
 const CLASS_COLORS = {
@@ -79,6 +84,7 @@ const CLASS_COLORS = {
 
 const NAV_TITLES = {
   overview: "Overview",
+  live: "Live Detection",
   alerts: "Alerts",
   incidents: "Incidents",
   reports: "AI Reports",
@@ -545,9 +551,10 @@ async function viewIncidentDetail(id) {
   }
   const inc = data.incident;
   const linked = data.alerts || [];
-  const offline = data.reports && data.reports.offline;
-  const llm = data.reports && data.reports.llm;
-  const hasReport = offline || llm;
+  const reportEntries = Object.entries(data.reports || {}).filter(([, v]) => v);
+  const offline = reportEntries.find(([k]) => k === "offline")?.[1];
+  const llm = reportEntries.find(([k]) => k === "llm")?.[1];
+  const hasReport = reportEntries.length > 0;
 
   const alertsTable = linked.length ? `<div class="table-wrap">
     <table>
@@ -562,14 +569,16 @@ async function viewIncidentDetail(id) {
       </tr>`).join("")}</tbody>
     </table></div>` : `<p class="muted">No linked alerts.</p>`;
 
-  const tabButtons = [
-    offline ? `<button class="tab active" data-tab="offline">Knowledge base</button>` : "",
-    llm ? `<button class="tab ${offline ? "" : "active"}" data-tab="llm">LLM report</button>` : "",
-  ].join("");
-  const tabPanels = [
-    offline ? `<div data-panel="offline" class="md">${mdToHtml(offline)}</div>` : "",
-    llm ? `<div data-panel="llm" class="md" ${offline ? "hidden" : ""}>${mdToHtml(llm)}</div>` : "",
-  ].join("");
+  const tabLabels = {offline: "Knowledge base", llm: "LLM report",
+                     gemini: "Gemini", openrouter: "OpenRouter", groq: "Groq"};
+  let firstTab = true;
+  const tabButtons = reportEntries.map(([key]) => {
+    const active = firstTab; firstTab = false;
+    return `<button class="tab ${active ? "active" : ""}" data-tab="${esc(key)}">${esc(tabLabels[key] || key)}</button>`;
+  }).join("");
+  const tabPanels = reportEntries.map(([key, text], i) =>
+    `<div data-panel="${esc(key)}" class="md" ${i ? "hidden" : ""}>${mdToHtml(text)}</div>`
+  ).join("");
 
   return `<a class="back-link" href="#/incidents"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>Back to incidents</a>
   <div class="detail-head">
@@ -960,6 +969,238 @@ function closeDrawer() {
   document.body.style.overflow = "";
 }
 
+/* ------------------------------------------------------------------- live */
+async function fetchLive(useTail = false) {
+  const q = new URLSearchParams();
+  if (useTail || !state.liveFeedOffset) q.set("tail", "60");
+  else q.set("offset", String(state.liveFeedOffset));
+  q.set("limit", "200");
+  q.set("log_offset", String(state.liveLogOffset || 0));
+  return api(`/api/live?${q}`, { force: true });
+}
+
+function liveStatCards(st) {
+  return [
+    kpi("Flows scored", num(st.events ?? 0), `at ${st.options?.rate ? `${st.options.rate}/s` : "line rate"}`),
+    kpi("Flagged", num(st.detections ?? 0), "XGBoost OR anomaly", "warn"),
+    kpi("Live alerts", num(st.alerts ?? 0), "correlated bursts", "accent"),
+    kpi("Live incidents", num(st.incidents ?? 0), "multi-stage chains", "accent"),
+    kpi("AI mode", esc(st.ai_mode || st.options?.ai_mode || "auto"),
+        st.api_key_configured
+          ? `${esc(st.provider || st.options?.provider || "auto")} · ${esc(st.model || st.options?.model || "default")}`
+          : "offline knowledge base", "good"),
+    kpi("Source", esc(st.source || st.options?.source || "–"),
+        st.uptime_seconds ? `uptime ${st.uptime_seconds}s` : "waiting to start"),
+  ].join("");
+}
+
+function liveFeedRows(items) {
+  if (!items || !items.length) return "";
+  return items.map((e) => {
+    if (e.error) {
+      return `<tr><td>${dt(e.ts)}</td><td colspan="6" style="color:var(--red)">${esc(e.error)}</td></tr>`;
+    }
+    const badgeClass = e.predicted === "BENIGN" ? "muted"
+      : e.predicted === "DDoS" ? "critical" : e.predicted === "PortScan" ? "medium" : "high";
+    const truth = e.true_label ? esc(e.true_label) : "–";
+    return `<tr>
+      <td>${dt(e.ts)}</td>
+      <td>${esc(e["Source IP"])}:${esc(e["Destination Port"])}</td>
+      <td><span class="badge ${badgeClass}">${esc(e.predicted)}</span></td>
+      <td>${pct(e.confidence, 1)}</td>
+      <td>${Number(e.anomaly_score || 0).toFixed(3)}${e.anomaly ? " ⚠" : ""}</td>
+      <td>${e.fused ? `<span class="badge high">ALERT</span>` : `<span class="badge muted">ok</span>`}</td>
+      <td>${truth}</td>
+    </tr>`;
+  }).join("");
+}
+
+function liveAlertCards(alerts, incidents) {
+  const reportFor = (id) => (state.reports || []).find((r) => r.incident_id === id)?.id;
+  const alertsHtml = (alerts || []).slice().reverse().slice(0, 12).map((a) => `
+    <div class="live-item">
+      <div class="li-top"><b>${esc(a.source_ip)}</b>${sevBadge(a.severity)}</div>
+      <div class="li-mid">${esc(a.attack_type)} · ${esc(a.technique_id)} · ${esc(a.tactic)}</div>
+      <div class="li-sub">${num(a.flows)} flows · ${num(a.target_hosts)} targets · ${dt(a.first_seen)}</div>
+    </div>`).join("") || `<p class="empty">No live alerts yet.</p>`;
+  const incHtml = (incidents || []).slice().reverse().slice(0, 12).map((i) => {
+    const rid = reportFor(i.incident_id);
+    return `<div class="live-item">
+      <div class="li-top"><b>${esc(i.incident_id)}</b>${sevBadge(i.severity)}</div>
+      <div class="li-mid">${esc(i.summary)}</div>
+      <div class="li-sub">${num(i.total_flows)} flows · ${num(i.alert_ids?.length)} alerts
+        ${rid ? ` · <a data-href="#/reports/${encodeURIComponent(rid)}" href="#/reports/${encodeURIComponent(rid)}">AI report</a>` : ""}</div>
+    </div>`;
+  }).join("") || `<p class="empty">No live incidents yet.</p>`;
+  return { alertsHtml, incHtml };
+}
+
+function updateLiveUi(d, appendFeed = false) {
+  if (!d) return;
+  state.live = d;
+  const st = d.status || {};
+  const stats = $("#live-stats");
+  if (stats) stats.innerHTML = liveStatCards(st);
+
+  const stateLabel = $("#live-state-label");
+  if (stateLabel) {
+    stateLabel.textContent = st.running ? "streaming" : st.error ? "error" : "stopped";
+    stateLabel.classList.toggle("live", !!st.running);
+  }
+  const dot = $("#nav-live-dot");
+  if (dot) dot.hidden = !st.running;
+
+  const err = $("#live-error");
+  if (err) err.innerHTML = st.error
+    ? `<div class="live-error"><b>Stream error:</b> ${esc(st.error)}</div>` : "";
+
+  const body = $("#live-feed-body");
+  if (body) {
+    const rows = liveFeedRows(d.feed?.items || []);
+    if (appendFeed) {
+      if (body.querySelector(".empty")) body.innerHTML = "";
+      body.insertAdjacentHTML("beforeend", rows);
+    } else {
+      body.innerHTML = rows || `<tr><td colspan="7" class="empty">No flows scored yet. Press “Start stream”.</td></tr>`;
+    }
+    if (state.autoScroll) {
+      const wrap = $("#live-feed-wrap");
+      if (wrap) wrap.scrollTop = wrap.scrollHeight;
+    }
+  }
+  const feedCount = $("#live-feed-count");
+  if (feedCount) feedCount.textContent = `${num(d.feed?.total || 0)} events`;
+
+  const cards = liveAlertCards(d.alerts, d.incidents);
+  const aBox = $("#live-alerts");
+  if (aBox) aBox.innerHTML = cards.alertsHtml;
+  const iBox = $("#live-incidents");
+  if (iBox) iBox.innerHTML = cards.incHtml;
+
+  const con = $("#live-console");
+  if (con && d.log?.text) {
+    const lines = d.log.text.split(/\r?\n/).filter(Boolean);
+    for (const line of lines) {
+      const span = document.createElement("span");
+      span.className = "ln " + (/ERROR|Traceback|failed/i.test(line) ? "err"
+        : /^new |saved|done:/i.test(line) ? "ok" : "");
+      span.textContent = line;
+      con.appendChild(span);
+    }
+    while (con.childElementCount > 300) con.firstElementChild.remove();
+    con.scrollTop = con.scrollHeight;
+  }
+
+  state.liveFeedOffset = d.feed?.offset ?? state.liveFeedOffset;
+  state.liveLogOffset = d.log?.offset ?? state.liveLogOffset;
+  const startBtn = $('[data-action="live-start"]');
+  const stopBtn = $('[data-action="live-stop"]');
+  if (startBtn) startBtn.disabled = !!st.running;
+  if (stopBtn) stopBtn.disabled = !st.running;
+}
+
+async function refreshLive() {
+  if (parseRoute().name !== "live") return;
+  try { updateLiveUi(await fetchLive(false), true); } catch (_) {}
+}
+
+async function viewLive() {
+  await ensureCore();
+  const d = await fetchLive(true);
+  state.live = d;
+  const st = d.status || {};
+  const cfg = state.liveConfig;
+  const running = !!st.running;
+  const providers = st.providers || {};
+  const configuredCount = Object.values(providers).filter((p) => p.configured).length;
+  const keyBadge = configuredCount
+    ? `<span class="badge low">${configuredCount} LLM key${configuredCount > 1 ? "s" : ""} available</span>`
+    : `<span class="badge muted">offline AI until a key is set</span>`;
+  const providerOptions = [{label: "Auto (first configured)", value: "auto"},
+    ...Object.entries(providers).map(([value, p]) => ({label: p.label, value}))];
+  const selectedProvider = cfg.provider === "auto" ? (st.provider || "auto") : cfg.provider;
+  const currentModel = cfg.model || (providers[selectedProvider]?.model || "");
+
+  return `${pageHead("Real-time", "Live Detection",
+    "Score a stream of flows, correlate alerts, and generate AI reports as events arrive.",
+    `<span class="chip ${running ? "live" : ""}" id="live-state-label">${running ? "streaming" : "stopped"}</span>`)}
+  <section class="panel mb">
+    <div class="panel-head"><span class="dot"></span><h2>Stream controls</h2>${keyBadge}</div>
+    <div class="live-form">
+      <label>Source
+        <select data-live-field="source" id="live-source">
+          <option value="replay" ${cfg.source === "replay" ? "selected" : ""}>Replay dataset (no privileges)</option>
+          <option value="tshark" ${cfg.source === "tshark" ? "selected" : ""}>tshark live capture</option>
+        </select>
+      </label>
+      <label>Rate / sec
+        <input type="number" min="0.1" max="500" step="0.1" data-live-field="rate" id="live-rate" value="${esc(cfg.rate)}">
+      </label>
+      <label>Flows to replay
+        <input type="number" min="1" max="100000" step="1" data-live-field="count" id="live-count" value="${esc(cfg.count)}">
+      </label>
+      <label>Interface
+        <input type="text" data-live-field="interface" id="live-interface" value="${esc(cfg.interface)}" placeholder="eth0">
+      </label>
+      <label>AI reports
+        <select data-live-field="aiMode" id="live-ai">
+          <option value="auto" ${cfg.aiMode === "auto" ? "selected" : ""}>Auto (LLM if key)</option>
+          <option value="offline" ${cfg.aiMode === "offline" ? "selected" : ""}>Offline knowledge base</option>
+          <option value="llm" ${cfg.aiMode === "llm" ? "selected" : ""}>LLM API only</option>
+        </select>
+      </label>
+      <label>LLM provider
+        <select data-live-field="provider" id="live-provider">
+          ${providerOptions.map((o) => `<option value="${esc(o.value)}" ${selectedProvider === o.value ? "selected" : ""}>${esc(o.label)}${providers[o.value]?.configured ? " ✓" : ""}</option>`).join("")}
+        </select>
+      </label>
+      <label>Model ID (optional)
+        <input type="text" data-live-field="model" id="live-model" value="${esc(currentModel)}" placeholder="provider default">
+      </label>
+    </div>
+    <div class="controls mt">
+      <button class="btn primary" data-action="live-start" ${running ? "disabled" : ""}>
+        <svg viewBox="0 0 24 24"><path d="M7 4l13 8-13 8V4z"/></svg>Start stream
+      </button>
+      <button class="btn danger" data-action="live-stop" ${!running ? "disabled" : ""}>
+        <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>Stop
+      </button>
+      <span class="spacer"></span>
+      <input type="password" id="live-key" placeholder="${esc(providers[selectedProvider]?.env || "API key")} (optional)" autocomplete="off" class="key-input">
+      <button class="btn ghost" data-action="live-key-save">Save key</button>
+    </div>
+    <p class="hint mt">Providers: Google Gemini, OpenRouter (<span class="mono">openrouter/free</span>) and Groq (routed via OpenRouter) — keys are loaded from .env or can be pasted above.
+      Keys and model IDs are held in server memory for this session only — never written to disk.
+      Replay works immediately; live capture needs tshark plus CAP_NET_RAW/CAP_NET_ADMIN.</p>
+  </section>
+  <div id="live-error">${st.error ? `<div class="live-error"><b>Stream error:</b> ${esc(st.error)}</div>` : ""}</div>
+  <div id="live-stats" class="kpis mb">${liveStatCards(st)}</div>
+  <div class="grid two">
+    <section class="panel">
+      <div class="panel-head"><span class="dot"></span><h2>Event feed</h2><span class="hint" id="live-feed-count">${num(d.feed?.total || 0)} events</span></div>
+      <div class="table-wrap live-feed-wrap" id="live-feed-wrap">
+        <table><thead><tr><th>Time</th><th>Flow</th><th>Prediction</th><th>Conf.</th><th>Anomaly</th><th>Fused</th><th>Truth</th></tr></thead>
+        <tbody id="live-feed-body">${liveFeedRows(d.feed?.items || []) || `<tr><td colspan="7" class="empty">No flows scored yet. Press “Start stream”.</td></tr>`}</tbody></table>
+      </div>
+    </section>
+    <section>
+      <div class="panel mb">
+        <div class="panel-head"><span class="dot"></span><h2>Live alerts</h2><span class="hint">newest first</span></div>
+        <div class="live-list" id="live-alerts">${liveAlertCards(d.alerts, d.incidents).alertsHtml}</div>
+      </div>
+      <div class="panel mb">
+        <div class="panel-head"><span class="dot"></span><h2>Live incidents</h2><span class="hint">AI reports auto-generated</span></div>
+        <div class="live-list" id="live-incidents">${liveAlertCards(d.alerts, d.incidents).incHtml}</div>
+      </div>
+      <div class="console-wrap">
+        <div class="console-head"><span class="lights"><i></i><i></i><i></i></span>
+          <span class="c-title">live.log</span></div>
+        <pre class="console" id="live-console"></pre>
+      </div>
+    </section>
+  </div>`;
+}
+
 /* ------------------------------------------------------------------ toast */
 let toastTimer = null;
 function toast(msg, isError = false) {
@@ -983,7 +1224,8 @@ async function render() {
 
   let html;
   try {
-    if (name === "alerts") html = await viewAlerts();
+    if (name === "live") html = await viewLive();
+    else if (name === "alerts") html = await viewAlerts();
     else if (name === "incidents") html = id ? await viewIncidentDetail(id) : await viewIncidents();
     else if (name === "reports") html = id ? await viewReportDetail(id) : await viewReports();
     else if (name === "evaluation") html = await viewEvaluation();
@@ -1005,6 +1247,7 @@ async function render() {
     state.logRaw = "";
     await refreshPipeline();
   }
+  if (name === "live" && state.live) updateLiveUi(state.live);
   if (name === "evaluation") { /* toggle handled by re-render */ }
   updateChrome();
 }
@@ -1053,6 +1296,68 @@ async function stopPipeline() {
   }
 }
 
+async function postJson(path, payload) {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload || {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok && data.ok !== false, data };
+}
+
+async function startLiveStream() {
+  const cfg = state.liveConfig;
+  const payload = {
+    source: cfg.source,
+    ai_mode: cfg.aiMode,
+    rate: Number(cfg.rate),
+    count: Number(cfg.count),
+    interface: cfg.interface,
+    provider: cfg.provider,
+    model: cfg.model,
+  };
+  try {
+    const { ok, data } = await postJson("/api/live/start", payload);
+    if (!ok) { toast(data.message || "Could not start stream", true); return; }
+    toast("Live stream started");
+    state.liveFeedOffset = 0;
+    state.liveLogOffset = 0;
+    state.coreAt = 0;
+    await render();
+  } catch (err) { toast(err.message, true); }
+}
+
+async function stopLiveStream() {
+  try {
+    const { ok, data } = await postJson("/api/live/stop", {});
+    if (!ok) { toast(data.message || "Could not stop stream", true); return; }
+    toast("Live stream stopped");
+    state.coreAt = 0;
+    await render();
+  } catch (err) { toast(err.message, true); }
+}
+
+async function saveLiveKey() {
+  const el = $("#live-key");
+  const key = (el?.value || "").trim();
+  const provider = state.liveConfig.provider === "auto"
+    ? (state.live?.status?.provider || "gemini") : state.liveConfig.provider;
+  const model = state.liveConfig.model;
+  if (!key && !state.live?.status?.providers?.[provider]?.configured) {
+    toast("Paste an API key first", true);
+    return;
+  }
+  try {
+    const { ok, data } = await postJson("/api/live/key", { provider, key, model });
+    if (!ok) { toast(data.message || "Could not save key", true); return; }
+    toast(data.message);
+    if (el) el.value = "";
+    state.coreAt = 0;
+    await render();
+  } catch (err) { toast(err.message, true); }
+}
+
 /* ------------------------------------------------------------------ events */
 document.addEventListener("click", (e) => {
   const close = e.target.closest("[data-close-drawer]");
@@ -1076,6 +1381,9 @@ document.addEventListener("click", (e) => {
   const a = action.dataset.action;
   if (a === "run-pipeline") runPipeline();
   else if (a === "stop-pipeline") stopPipeline();
+  else if (a === "live-start") startLiveStream();
+  else if (a === "live-stop") stopLiveStream();
+  else if (a === "live-key-save") saveLiveKey();
   else if (a === "reset-alert-filters") {
     state.filters = { q: "", severity: "all", attack: "all" };
     render();
@@ -1103,10 +1411,16 @@ document.addEventListener("click", (e) => {
   }
 });
 
+function rememberLiveField(e) {
+  const field = e.target?.dataset?.liveField;
+  if (field) state.liveConfig[field] = e.target.value;
+}
 document.addEventListener("input", (e) => {
+  rememberLiveField(e);
   if (e.target.id === "alert-search") { state.filters.q = e.target.value; refreshAlertTable(); }
 });
 document.addEventListener("change", (e) => {
+  rememberLiveField(e);
   if (e.target.id === "alert-sev") { state.filters.severity = e.target.value; refreshAlertTable(); }
   if (e.target.id === "alert-attack") { state.filters.attack = e.target.value; refreshAlertTable(); }
 });
@@ -1139,11 +1453,24 @@ window.addEventListener("hashchange", () => {
   render();
 });
 
-/* periodic status check (keeps the run pill honest everywhere) */
+/* periodic status check (keeps run pill and the live view honest everywhere) */
 setInterval(async () => {
   try {
-    const st = await api("/api/pipeline", { force: true });
+    const [st, live] = await Promise.all([
+      api("/api/pipeline", { force: true }),
+      api("/api/live", { force: true }),
+    ]);
     updateRunPill(st);
+    const dot = $("#nav-live-dot");
+    if (dot) dot.hidden = !live.status?.running;
+    const route = parseRoute().name;
+    if (route === "live") {
+      await refreshLive();
+    } else if (live.status?.running && ["overview", "alerts", "incidents", "reports"].includes(route)) {
+      const active = document.activeElement;
+      const typing = active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName);
+      if (!typing) { clearCache(); state.coreAt = 0; render(); }
+    }
   } catch (_) {}
 }, 5000);
 

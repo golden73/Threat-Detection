@@ -21,6 +21,8 @@ data/*
 !data/README.md
 outputs/predictions.csv
 outputs/demo.pdf
+outputs/live/
+outputs/reports/LIVE-*.md
 *.csv
 *.pcap
 *.pcapng

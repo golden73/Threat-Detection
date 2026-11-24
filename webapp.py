@@ -17,12 +17,15 @@ import argparse
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import threading
 import time
 import webbrowser
 from collections import Counter
+
+import llm_providers
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -32,6 +35,8 @@ ROOT = Path(__file__).resolve().parent
 OUT = ROOT / "outputs"
 WEB = ROOT / "web"
 LOG_PATH = OUT / "pipeline.log"
+LIVE_DIR = OUT / "live"
+LIVE_LOG_PATH = LIVE_DIR / "live.log"
 
 # ---------------------------------------------------------------------------
 # Pipeline definition (mirrors run_pipeline.py)
@@ -271,12 +276,12 @@ def stop_pipeline() -> tuple[bool, str]:
         return True, "Pipeline stopped."
 
 
-def read_log(offset: int) -> dict:
-    if not LOG_PATH.exists():
+def read_log(offset: int, path: Path = LOG_PATH) -> dict:
+    if not path.exists():
         return {"offset": 0, "text": "", "size": 0, "truncated": False}
-    size = LOG_PATH.stat().st_size
+    size = path.stat().st_size
     offset = max(0, min(offset, size))
-    with LOG_PATH.open("rb") as fh:
+    with path.open("rb") as fh:
         fh.seek(offset)
         data = fh.read(262_144)
     end = offset + len(data)
@@ -286,6 +291,279 @@ def read_log(offset: int) -> dict:
         "size": size,
         "truncated": end < size,
     }
+
+
+# ---------------------------------------------------------------------------
+# Live detection engine (in-process management)
+# ---------------------------------------------------------------------------
+_live_proc: subprocess.Popen | None = None
+_live_lock = threading.Lock()
+_live_exit_code: int | None = None
+_live_started_at: str | None = None
+_live_options: dict = {}
+# Session memory only — keys are never written to disk.
+_api_keys: dict[str, str] = {}
+_live_models: dict[str, str] = {}
+
+
+def _live_running() -> bool:
+    return _live_proc is not None and _live_proc.poll() is None
+
+
+def _watch_live(proc: subprocess.Popen) -> None:
+    global _live_exit_code
+    _live_exit_code = proc.wait()
+
+
+def api_key_configured(provider: str | None = None) -> bool:
+    if provider:
+        return llm_providers.configured(provider, _api_keys.get(provider))
+    return any(llm_providers.configured(p, _api_keys.get(p)) for p in llm_providers.ORDER)
+
+
+def set_api_key(provider: str, key: str, model: str | None = None) -> tuple[bool, str]:
+    if not llm_providers.is_provider(provider):
+        return False, f"Unknown provider: {provider}"
+    key = (key or "").strip()
+    if key:
+        _api_keys[provider] = key
+    else:
+        _api_keys.pop(provider, None)
+    model = (model or "").strip()
+    if model:
+        if not re.fullmatch(r"[A-Za-z0-9._:/-]{1,120}", model):
+            return False, "Invalid model ID."
+        _live_models[provider] = model
+    label = llm_providers.PROVIDERS[provider]["label"]
+    if key:
+        return True, f"{label} key set for this browser session (not saved to disk)."
+    return True, f"{label} key cleared for this session."
+
+
+def _external_live_pids() -> list[int]:
+    """PIDs of live_engine.py processes running outside the dashboard."""
+    managed_pid = _live_proc.pid if _live_proc is not None else None
+    found: list[int] = []
+    try:
+        for pid in os.listdir("/proc"):
+            if not pid.isdigit() or int(pid) == os.getpid() or int(pid) == managed_pid:
+                continue
+            try:
+                args = [a for a in Path(f"/proc/{pid}/cmdline").read_bytes()
+                        .split(b"\0") if a]
+            except OSError:
+                continue
+            if not args:
+                continue
+            exe = args[0].decode("utf-8", "replace")
+            # Only count actual python processes launched with live_engine.py,
+            # not shells whose command text merely mentions the filename.
+            if "python" not in exe:
+                continue
+            if any(a in (b"live_engine.py", b"./live_engine.py") or
+                   a.endswith(b"/live_engine.py") for a in args[1:]):
+                found.append(int(pid))
+    except OSError:
+        pass
+    return found
+
+
+def _external_live_running() -> bool:
+    return bool(_external_live_pids())
+
+
+def live_status() -> dict:
+    disk = _json_load("outputs/live/status.json", {})
+    feed_path = LIVE_DIR / "feed.jsonl"
+    total = 0
+    if feed_path.exists():
+        with feed_path.open(encoding="utf-8") as fh:
+            total = sum(1 for _ in fh)
+    managed = _live_running()
+    running = managed or _external_live_running()
+    providers = {
+        name: {
+            "label": info["label"],
+            "env": info["env"],
+            "configured": api_key_configured(name),
+            "model": _live_models.get(name) or llm_providers.default_model(name),
+            "hint": info["hint"],
+        }
+        for name, info in llm_providers.PROVIDERS.items()
+    }
+    requested = _live_options.get("provider")
+    if not requested and running:
+        requested = disk.get("provider")
+    if not requested or requested == "auto" or not llm_providers.is_provider(requested):
+        requested = next((p for p in llm_providers.ORDER if providers[p]["configured"]), None)
+    return {
+        **disk,
+        "running": running,
+        "managed": managed,
+        "external": running and not managed,
+        "exit_code": _live_exit_code,
+        "started_at": _live_started_at,
+        "options": _live_options,
+        "api_key_configured": api_key_configured(),
+        "providers": providers,
+        "provider": requested,
+        "model": _live_options.get("model") or _live_models.get(requested or "", ""),
+        "feed_total": total,
+        "log_available": LIVE_LOG_PATH.exists(),
+    }
+
+
+def read_feed(offset: int | None = None, tail: int | None = None, limit: int = 200) -> dict:
+    path = LIVE_DIR / "feed.jsonl"
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    total = len(lines)
+    if tail:
+        start = max(0, total - tail)
+    else:
+        start = max(0, min(offset or 0, total))
+    chunk = lines[start:start + limit]
+    items = []
+    for raw in chunk:
+        try:
+            items.append(json.loads(raw))
+        except ValueError:
+            continue
+    return {"offset": start + len(chunk), "total": total, "items": items}
+
+
+def build_live(query: dict) -> dict:
+    offset_raw = query.get("offset", [None])[0]
+    try:
+        offset = int(offset_raw) if offset_raw is not None else None
+    except ValueError:
+        offset = None
+    try:
+        tail = int(query.get("tail", [0])[0]) or None
+    except ValueError:
+        tail = None
+    try:
+        limit = max(1, min(1000, int(query.get("limit", [200])[0])))
+    except ValueError:
+        limit = 200
+    log_offset = 0
+    try:
+        log_offset = int(query.get("log_offset", [0])[0])
+    except ValueError:
+        pass
+    return {
+        "status": live_status(),
+        "feed": read_feed(offset=offset, tail=tail, limit=limit),
+        "alerts": _json_load("outputs/live/alerts.json", []),
+        "incidents": _json_load("outputs/live/incidents.json", []),
+        "log": read_log(log_offset, LIVE_LOG_PATH),
+    }
+
+
+def start_live(options: dict) -> tuple[bool, str]:
+    global _live_proc, _live_exit_code, _live_started_at, _live_options
+    source = options.get("source", "replay")
+    ai_mode = options.get("ai_mode", "auto")
+    provider = (options.get("provider") or "").strip() or None
+    model = (options.get("model") or "").strip() or None
+    if source not in ("replay", "tshark"):
+        return False, "Unknown live source."
+    if ai_mode not in ("auto", "llm", "offline"):
+        return False, "Unknown AI mode."
+    if provider and not llm_providers.is_provider(provider):
+        return False, f"Unknown LLM provider: {provider}"
+    if model and not re.fullmatch(r"[A-Za-z0-9._:/-]{1,120}", model):
+        return False, "Invalid model ID."
+    if ai_mode == "llm" and not api_key_configured(provider):
+        target = llm_providers.PROVIDERS.get(provider or "", {}).get("env", "any provider key")
+        return False, (f"LLM mode needs a key for {provider or 'a provider'} "
+                       f"({target}). Save one below or set it in the environment.")
+    with _live_lock:
+        if _live_running() or _external_live_running():
+            return False, ("A live engine is already running (started here or from "
+                           "the command line).")
+
+        env = dict(os.environ, PYTHONUNBUFFERED="1")
+        for name, key in _api_keys.items():
+            env[llm_providers.PROVIDERS[name]["env"]] = key
+        cmd = [sys.executable, "-u", "live_engine.py", "--source", source,
+               "--ai-mode", ai_mode]
+        if provider:
+            cmd += ["--provider", provider]
+        if model:
+            cmd += ["--model", model]
+        if source == "replay":
+            try:
+                rate = float(options.get("rate", 10))
+                count = int(options.get("count", 0))
+            except (TypeError, ValueError):
+                return False, "Rate and count must be numbers."
+            if not (0.1 <= rate <= 500) or not (0 <= count <= 100_000):
+                return False, "Rate must be 0.1–500/s and count 0–100,000 (0 = continuous)."
+            cmd += ["--rate", str(rate), "--count", str(count)]
+        else:
+            interface = str(options.get("interface") or "eth0")
+            if not re.fullmatch(r"[A-Za-z0-9_.:@-]+", interface):
+                return False, "Invalid network interface name."
+            cmd += ["--interface", interface]
+
+        LIVE_DIR.mkdir(parents=True, exist_ok=True)
+        # A new session starts with a clean live feed, but keeps batch artifacts.
+        for rel in ("feed.jsonl", "alerts.json", "incidents.json", "status.json"):
+            (LIVE_DIR / rel).unlink(missing_ok=True)
+        for old in (OUT / "reports").glob("LIVE-*.md"):
+            old.unlink()
+        handle = LIVE_LOG_PATH.open("wb")
+        try:
+            _live_proc = subprocess.Popen(
+                cmd, cwd=ROOT, stdout=handle, stderr=subprocess.STDOUT,
+                env=env, start_new_session=True,
+            )
+        finally:
+            handle.close()
+        _live_exit_code = None
+        _live_started_at = _utcnow()
+        _live_options = {
+            "source": source,
+            "ai_mode": ai_mode,
+            "provider": provider or "auto",
+            "model": model or _live_models.get(provider or "", ""),
+            "rate": options.get("rate", 10) if source == "replay" else None,
+            "count": options.get("count", 600) if source == "replay" else None,
+            "interface": options.get("interface", "eth0") if source == "tshark" else None,
+        }
+        threading.Thread(target=_watch_live, args=(_live_proc,), daemon=True).start()
+        return True, "Live detection started."
+
+
+def stop_live() -> tuple[bool, str]:
+    with _live_lock:
+        stopped = False
+        if _live_running():
+            assert _live_proc is not None
+            try:
+                os.killpg(os.getpgid(_live_proc.pid), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                _live_proc.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(os.getpgid(_live_proc.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    _live_proc.kill()
+                _live_proc.wait(timeout=5)
+            stopped = True
+
+        # Also stop an engine left over from a previous dashboard process.
+        for pid in _external_live_pids():
+            try:
+                os.kill(pid, signal.SIGTERM)
+                stopped = True
+            except ProcessLookupError:
+                pass
+        if stopped:
+            return True, "Live detection stopped."
+        return False, "No live detection run is active."
 
 
 # ---------------------------------------------------------------------------
@@ -339,9 +617,10 @@ def build_incident(incident_id: str) -> dict | None:
     alerts = {a["alert_id"]: a for a in _json_load("outputs/alerts.json", [])}
     linked = [alerts[x] for x in incident.get("alert_ids", []) if x in alerts]
     reports = {}
-    for mode in ("offline", "llm"):
-        path = OUT / "reports" / f"{incident_id}_{mode}.md"
-        reports[mode] = path.read_text(encoding="utf-8") if path.exists() else None
+    if re.fullmatch(r"[A-Za-z0-9_-]+", incident_id):
+        for path in sorted((OUT / "reports").glob(f"{incident_id}_*.md")):
+            mode = path.stem[len(incident_id) + 1:]
+            reports[mode] = path.read_text(encoding="utf-8")
     return {"incident": incident, "alerts": linked, "reports": reports}
 
 
@@ -441,6 +720,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(read_log(offset))
         elif path == "/api/pipeline/events":
             self._sse_pipeline()
+        elif path == "/api/live":
+            self._json(build_live(query))
         else:
             self._error("Unknown endpoint", 404)
 
@@ -502,8 +783,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         path = urlparse(self.path).path
         length = int(self.headers.get("Content-Length") or 0)
-        if length:
-            self.rfile.read(length)
+        body = self.rfile.read(length) if length else b""
+        data: dict = {}
+        if body:
+            try:
+                data = json.loads(body)
+            except ValueError:
+                self._error("Invalid JSON body")
+                return
         if path == "/api/pipeline/start":
             ok, message = start_pipeline()
             self._json({"ok": ok, "message": message, "pipeline": pipeline_status()},
@@ -512,6 +799,19 @@ class Handler(BaseHTTPRequestHandler):
             ok, message = stop_pipeline()
             self._json({"ok": ok, "message": message, "pipeline": pipeline_status()},
                        200 if ok else 409)
+        elif path == "/api/live/start":
+            ok, message = start_live(data)
+            self._json({"ok": ok, "message": message, "status": live_status()},
+                       200 if ok else 409)
+        elif path == "/api/live/stop":
+            ok, message = stop_live()
+            self._json({"ok": ok, "message": message, "status": live_status()},
+                       200 if ok else 409)
+        elif path == "/api/live/key":
+            ok, message = set_api_key(data.get("provider") or llm_providers.ORDER[0],
+                                      data.get("key", ""), data.get("model"))
+            self._json({"ok": ok, "message": message, "status": live_status()},
+                       200 if ok else 400)
         else:
             self._error("Unknown endpoint", 404)
 
