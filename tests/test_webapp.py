@@ -27,7 +27,9 @@ def test_incident_lookup():
     if data is not None:
         assert data["incident"]["incident_id"] == "INC-003"
         assert isinstance(data["alerts"], list)
-        assert set(data["reports"]) == {"offline", "llm"}
+        # Reports depend on which modes have actually been generated; an LLM
+        # report is optional (offline is always available).
+        assert {"offline"} <= set(data["reports"]) <= {"offline", "llm"}
 
 
 def test_report_ids_reject_paths():

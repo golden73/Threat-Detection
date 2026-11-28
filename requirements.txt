@@ -6,7 +6,6 @@ pandas==2.3.3
 scikit-learn==1.9.1
 scipy==1.17.1
 xgboost==3.4.1
-anthropic==1.13.0
 
 # Pinned transitive dependencies of scikit-learn/xgboost (reproducibility)
 joblib==1.5.3

@@ -160,6 +160,95 @@ POST /api/pipeline/start        start run_pipeline.py
 POST /api/pipeline/stop         stop a dashboard-started run
 ```
 
+## Going Live (real-time detection + LLM reports)
+
+Open the dashboard and select **Live** in the sidebar. The stream controls let
+you choose the source, rate, AI mode, LLM provider/model, and (optionally) an
+API key.
+
+```bash
+python3 webapp.py                       # then open http://127.0.0.1:8080/#/live
+```
+
+**1. Live AI reports.** Three hosted options are supported through one
+interface (`llm_providers.py`, standard library only):
+
+| Provider | Key env var | Default model | Free tier |
+|---|---|---|---|
+| Google Gemini | `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) | `gemini-3.5-flash-lite` | Yes |
+| OpenRouter | `OPENROUTER_API_KEY` | `openrouter/free` | 15 free models |
+| Groq (via OpenRouter) | `OPENROUTER_API_KEY` | `meta-llama/llama-3.1-8b-instruct` | Groq-hosted, routed via OpenRouter |
+
+Groq is reached through OpenRouter with `provider: {"only": ["groq"]}` — no
+direct Groq API calls and no separate Groq key are needed.
+
+For a mini-project setup, keep keys in a local `.env` file in the project root
+(gitignored, mode 600) — they are loaded on startup, so dashboard restarts keep
+working:
+
+```bash
+cat > .env <<'EOF'
+GEMINI_API_KEY=...
+OPENROUTER_API_KEY=...
+EOF
+chmod 600 .env
+python3 webapp.py
+```
+
+You can also paste a key into the Live page for the current session (provider
+memory only), or export one before starting the dashboard. Never commit `.env`.
+
+Modes: `auto` uses the first configured provider and falls back to the offline
+knowledge base if none is configured, `llm` requires a key for the chosen
+provider, `offline` never calls an API. If a call fails, the report falls back
+to offline mode and says so. Model IDs and free quotas change; override the
+model field at any time (e.g. `google/gemma-4-26b-a4b-it:free` on OpenRouter,
+`gemini-3.5-flash-lite` on Gemini).
+
+**2. Live traffic feed.** Two sources:
+
+- `replay` (default) — replays flows from `data/clean.csv` in timestamp order,
+  with an 80/20 attack/benign mix at a configurable rate. Needs no privileges.
+  `Flows to replay = 0` (the default) means continuous replay until you press
+  Stop; set a positive count for a one-off batch.
+- `tshark` — captures real packets on an interface and aggregates them into
+  flows every 30 seconds. Requires `tshark` and capture permission:
+
+  ```bash
+  sudo setcap cap_net_raw,cap_net_admin+eip "$(dirname "$(readlink -f "$(command -v tshark)")")/dumpcap"
+  python live_engine.py --source tshark --interface eth0 --ai-mode auto
+  ```
+
+  Packet-derived features approximate the CICIDS2017 feature set; treat live
+  capture detections as a demo/prototype, not a validated production sensor.
+
+The engine scores each flow with the trained XGBoost model **and** the
+IsolationForest anomaly layer, fuses them with OR, and writes to
+`outputs/live/` (`feed.jsonl`, `alerts.json`, `incidents.json`, `status.json`,
+`live.log`) plus `outputs/reports/LIVE-*.md`. It never overwrites the batch
+pipeline artifacts. Starting a new stream clears the previous live session.
+
+**3. Live dashboard.** The Live page streams new events into the table, updates
+alerts/incidents/reports automatically, and keeps the other pages fresh while a
+stream is running. The sidebar dot shows when a stream is active.
+
+HTTP API for the live path:
+
+```
+GET  /api/live?offset=N&log_offset=M   status + feed + alerts + incidents + log
+GET  /api/live?tail=60                 last 60 feed events instead
+POST /api/live/start                   {"source":"replay","rate":10,"count":600,"ai_mode":"auto","provider":"gemini"}
+POST /api/live/stop
+POST /api/live/key                     {"provider":"groq","key":"...","model":"..."}   (session memory only)
+```
+
+Command line equivalents:
+
+```bash
+python step4_assistant.py --incident INC-003 --mode llm --provider gemini
+python live_engine.py --source replay --ai-mode auto --provider openrouter --model openrouter/free
+```
+
 ## Key Features
 
 - **No label leakage**: Destination Port excluded from model features
@@ -192,20 +281,20 @@ POST /api/pipeline/stop         stop a dashboard-started run
 ## AI Assistant Modes
 
 - **offline**: Deterministic knowledge-base report (default, no dependencies)
-- **llm**: Anthropic Claude (requires `ANTHROPIC_API_KEY` and `pip install anthropic`)
-- **auto**: LLM if key available, otherwise offline
+- **llm**: Gemini, OpenRouter or Groq via OpenRouter (requires a provider API key)
+- **auto**: LLM if any provider key is available, otherwise offline
 
 ```bash
 # Offline (default)
 python step4_assistant.py --incident INC-003
 
-# LLM mode
-export ANTHROPIC_API_KEY=sk-...
-python step4_assistant.py --incident INC-003 --mode llm
+# LLM mode with a specific provider
+export GEMINI_API_KEY=...
+python step4_assistant.py --incident INC-003 --mode llm --provider gemini
 ```
 
-The assistant runs fully offline by default; set `ANTHROPIC_API_KEY` and use
-`--mode llm` to enable Anthropic Claude.
+The assistant runs fully offline by default; set one of the provider keys above
+and use `--mode llm` (optionally `--provider` / `--model`) to enable hosted reports.
 
 ## Limitations
 
