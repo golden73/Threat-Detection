@@ -464,6 +464,10 @@ def start_live(options: dict) -> tuple[bool, str]:
     source = options.get("source", "replay")
     ai_mode = options.get("ai_mode", "auto")
     provider = (options.get("provider") or "").strip() or None
+    # The Live page offers "auto" as a UI choice; it means "let the provider
+    # layer decide", not a concrete provider name.
+    if provider == "auto":
+        provider = None
     model = (options.get("model") or "").strip() or None
     if source not in ("replay", "tshark"):
         return False, "Unknown live source."
