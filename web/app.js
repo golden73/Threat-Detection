@@ -1170,7 +1170,6 @@ async function viewLive() {
       <button class="btn ghost" data-action="live-key-save">Save key</button>
     </div>
     <p class="hint mt">Providers: Google Gemini, OpenRouter (<span class="mono">openrouter/free</span>) and Groq (routed via OpenRouter) — keys are loaded from .env or can be pasted above.
-      Keys and model IDs are held in server memory for this session only — never written to disk.
       Replay works immediately; live capture needs tshark plus CAP_NET_RAW/CAP_NET_ADMIN.</p>
   </section>
   <div id="live-error">${st.error ? `<div class="live-error"><b>Stream error:</b> ${esc(st.error)}</div>` : ""}</div>
